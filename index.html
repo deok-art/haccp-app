@@ -111,7 +111,9 @@
     <!-- 선택 모드 하단 바 -->
     <div id="selection-bar" class="selection-bar hidden">
       <span id="selected-count" style="font-weight:bold;">0개 선택됨</span>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="select-all-btn" onclick="toggleSelectAll()"
+          style="padding:7px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.4);background:rgba(255,255,255,0.15);color:white;font-size:12px;font-weight:bold;cursor:pointer;">전체선택</button>
         <button class="action-btn btn-cancel" onclick="closeSelectMode()">취소</button>
         <button id="batch-revoke-btn"  class="action-btn" style="background:#9b59b6;color:white;" onclick="executeBatchRevoke()">선택 승인취소</button>
         <button id="batch-approve-btn" class="action-btn btn-approve"                              onclick="executeBatchApprove()">선택 일괄승인</button>

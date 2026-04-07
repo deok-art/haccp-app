@@ -19,12 +19,11 @@ function renderTodoList() {
     { key: '월간', label: '📆 월간 일지', cls: 'monthly' }
   ];
 
-  // 오늘 날짜의 상태별 레코드 분류
-  var writingRecs  = state.records.filter(function(r) {
+  var writingRecs = state.records.filter(function(r) {
     return r.status === '작성중' && r.date === state.serverToday;
   });
-  var writingIds   = writingRecs.map(function(r) { return r.logId; });
-  var doneIds      = state.records
+  var writingIds = writingRecs.map(function(r) { return r.logId; });
+  var doneIds    = state.records
     .filter(function(r) { return r.date === state.serverToday && r.status !== '작성중'; })
     .map(function(r) { return r.logId; });
 
@@ -34,17 +33,19 @@ function renderTodoList() {
     var logsInGroup = state.logs.filter(function(l) { return l.interval === group.key; });
     if (!logsInGroup.length) return;
 
+    var pendingInGroup = logsInGroup.filter(function(l) { return !doneIds.includes(l.id); });
+    if (!pendingInGroup.length) return;
+
     var section = document.createElement('div');
     section.className = 'interval-section';
 
     var header = document.createElement('div');
     header.className = 'interval-header ' + group.cls;
-    header.innerHTML = group.label +
-      '<span style="margin-left:auto;font-size:12px;opacity:0.7;">' + logsInGroup.length + '건</span>';
+    header.innerText = group.label; // ④ 건수 제거
     section.appendChild(header);
 
     logsInGroup.forEach(function(log) {
-      if (doneIds.includes(log.id)) return; // 이미 완료된 일지는 할일 목록에서 제외
+      if (doneIds.includes(log.id)) return;
 
       var isWriting = writingIds.includes(log.id);
       var rec       = isWriting ? writingRecs.find(function(r) { return r.logId === log.id; }) : null;
@@ -88,10 +89,9 @@ function renderTodoList() {
 
 /**
  * 새 일지 레코드 생성 후 폼 열기
- * 전체 로딩 오버레이로 중복 클릭 방지
  */
 function startNewLog(logId, title, cardElem) {
-  cardElem.onclick = null; // 중복 클릭 차단
+  cardElem.onclick = null;
   showLoading('일지 생성 중...');
 
   google.script.run
@@ -107,7 +107,6 @@ function startNewLog(logId, title, cardElem) {
       } else {
         hideLoading();
         showToast('일지 생성 실패: ' + (res.message || ''), 'error');
-        // 실패 시 클릭 복원
         cardElem.onclick = (function(lid, t, ce) {
           return function() { startNewLog(lid, t, ce); };
         })(logId, title, cardElem);
@@ -161,7 +160,6 @@ function renderDoneList() {
     return;
   }
 
-  // 날짜 내림차순 그룹화
   var dates = Array.from(new Set(recs.map(function(r) { return r.date; }))).sort().reverse();
   dates.forEach(function(date) {
     var hdr = document.createElement('div');
@@ -171,7 +169,6 @@ function renderDoneList() {
 
     recs.filter(function(r) { return r.date === date; })
       .sort(function(a, b) {
-        // 부적합 건 상단 정렬
         if (a.defectInfo && !b.defectInfo) return -1;
         if (!a.defectInfo && b.defectInfo) return  1;
         return b.recordId.localeCompare(a.recordId);
@@ -192,7 +189,6 @@ function buildDoneCard(rec) {
   wrap.className = 'done-card-wrap';
   wrap.id        = 'card-wrap-' + rec.recordId;
 
-  // 부적합 미리보기
   var defectHtml = '', hasDefect = false;
   if (rec.defectInfo && rec.defectInfo !== 'undefined' && rec.defectInfo !== '') {
     try {
@@ -207,17 +203,14 @@ function buildDoneCard(rec) {
     } catch (e) {}
   }
 
-  // 스테퍼 — 상태별 색상 클래스 분리
   var s1 = 'step step-write';
   var s2 = (rec.status === '검토완료' || rec.status === '승인완료') ? 'step step-review' : 'step';
   var s3 = rec.status === '승인완료' ? 'step step-approve' : 'step';
 
-  // 뱃지 색상: 작성완료=주황 / 검토완료=파랑 / 승인완료=초록
   var badgeColor = rec.status === '승인완료' ? '#27ae60'
                  : rec.status === '검토완료' ? '#2980b9'
                  : '#e67e22';
 
-  // 결재 버튼
   var btns = '';
   if (!state.selectMode) {
     if (role >= 2 && rec.status === '작성완료')
@@ -233,7 +226,7 @@ function buildDoneCard(rec) {
   }
 
   var checkbox = (state.selectMode && (rec.status !== '승인완료' || state.revokeMode))
-    ? '<input type="checkbox" class="card-check date-' + rec.date + '" data-id="' + rec.recordId +
+    ? '<input type="checkbox" class="card-check" data-id="' + rec.recordId +
       '" data-status="' + rec.status + '" onchange="updateCount()">'
     : '';
 
@@ -281,10 +274,10 @@ function doAction(recordId, action, title) {
         } else {
           state.records.forEach(function(r) {
             if (r.recordId !== recordId) return;
-            if (action === 'CANCEL_REVIEW') { r.status = '작성완료'; r.reviewer  = ''; }
-            if (action === 'REVIEW')        { r.status = '검토완료'; r.reviewer  = state.user.name; }
-            if (action === 'APPROVE')       { r.status = '승인완료'; r.approver  = state.user.name; }
-            if (action === 'REVOKE')        { r.status = '검토완료'; r.approver  = ''; }
+            if (action === 'CANCEL_REVIEW') { r.status = '작성완료'; r.reviewer = ''; }
+            if (action === 'REVIEW')        { r.status = '검토완료'; r.reviewer = state.user.name; }
+            if (action === 'APPROVE')       { r.status = '승인완료'; r.approver = state.user.name; }
+            if (action === 'REVOKE')        { r.status = '검토완료'; r.approver = ''; }
           });
         }
         renderLists();

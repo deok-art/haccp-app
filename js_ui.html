@@ -78,9 +78,9 @@ function forceSignature(canClose) {
 function initSigCanvas() {
   canvas = document.getElementById('sig-canvas');
   if (!canvas) return;
-  ctx            = canvas.getContext('2d');
-  canvas.width   = canvas.offsetWidth;
-  canvas.height  = 180;
+  ctx           = canvas.getContext('2d');
+  canvas.width  = canvas.offsetWidth;
+  canvas.height = 180;
 
   canvas.onmousedown  = function(e) { sigDrawing = true;  sigDraw(e); };
   canvas.onmouseup    = function()  { sigDrawing = false; ctx.beginPath(); };
@@ -120,9 +120,9 @@ function submitSignature() {
 // ── 롱프레스 / 선택 모드 ────────────────────────────────
 function startPress(e, actionType) {
   pressTimer = setTimeout(function() {
-    if (actionType === 'WRITE')       { executeBatchWrite();                return; }
-    if (actionType === 'REVIEW')      { executeBatchProcess('REVIEW');      return; }
-    if (actionType === 'APPROVE')     { executeBatchProcess('APPROVE');     return; }
+    if (actionType === 'WRITE')       { executeBatchWrite();           return; }
+    if (actionType === 'REVIEW')      { executeBatchProcess('REVIEW'); return; }
+    if (actionType === 'APPROVE')     { executeBatchProcess('APPROVE');return; }
     if (actionType === 'SELECT_MODE') {
       if (parseInt(state.user.role) < 3) return;
       state.selectMode = true; state.revokeMode = false;
@@ -149,6 +149,17 @@ function closeSelectMode() {
   state.revokeMode = false;
   document.getElementById('selection-bar').classList.add('hidden');
   renderDoneList();
+}
+
+// ③ 전체선택 토글
+function toggleSelectAll() {
+  var checkboxes = document.querySelectorAll('.card-check');
+  var allChecked = Array.from(checkboxes).every(function(cb) { return cb.checked; });
+  checkboxes.forEach(function(cb) { cb.checked = !allChecked; });
+  updateCount();
+  // 버튼 라벨 토글
+  var btn = document.getElementById('select-all-btn');
+  if (btn) btn.innerText = allChecked ? '전체선택' : '전체해제';
 }
 
 function updateCount() {
@@ -223,31 +234,116 @@ function runTestDataSetup() {
     .generateTestRecords();
 }
 
+// ⑤ 사후작성 — 날짜 선택 시 미작성 일지 목록 표시, 체크 선택 후 일괄생성
 function openPostWriter() {
-  var optHtml = '';
-  state.logs.forEach(function(l) { optHtml += '<option value="' + l.id + '">' + l.title + '</option>'; });
-  openModal('사후 작성 생성',
-    '<p style="font-size:12px;color:red;">* 관리자 전용: 과거 날짜 일지 강제 생성</p>' +
-    '<div style="margin-bottom:10px;"><label style="font-size:12px;">날짜</label>' +
-      '<input type="date" id="post-date" class="input-field" value="' + state.serverToday + '"></div>' +
-    '<div style="margin-bottom:15px;"><label style="font-size:12px;">일지 종류</label>' +
-      '<select id="post-log-id" class="input-field">' + optHtml + '</select></div>' +
-    '<button onclick="executePostCreate()" class="btn-primary">생성</button>',
+  openModal('🗂 사후 작성 생성',
+    '<p style="font-size:12px;color:#e74c3c;margin:0 0 12px;">* 관리자 전용: 과거 날짜 일지 생성</p>' +
+    '<div style="margin-bottom:12px;">' +
+      '<label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">날짜 선택</label>' +
+      '<input type="date" id="post-date" class="input-field" style="margin:0;" value="' + state.serverToday + '" onchange="loadPostWriterLogs()">' +
+    '</div>' +
+    '<div id="post-log-list" style="margin-bottom:12px;"></div>' +
+    '<button onclick="executePostCreateBatch()" class="btn-primary" style="background:var(--success);">✔ 선택 일지 생성</button>',
     true);
+
+  // 모달 열리자마자 오늘 날짜 기준으로 목록 로드
+  setTimeout(loadPostWriterLogs, 100);
 }
 
-function executePostCreate() {
-  var date   = document.getElementById('post-date').value;
-  var logId  = document.getElementById('post-log-id').value;
-  var logObj = state.logs.find(function(l) { return l.id === logId; });
-  if (!logObj) return;
-  showLoading('생성 중...');
-  google.script.run
-    .withSuccessHandler(function() {
-      closeModal();
-      showToast(date + ' 일지 생성 완료!', 'success');
+/**
+ * 선택한 날짜의 미작성 일지 목록을 모달 안에 렌더링
+ */
+function loadPostWriterLogs() {
+  var dateEl = document.getElementById('post-date');
+  var listEl = document.getElementById('post-log-list');
+  if (!dateEl || !listEl) return;
+
+  var selectedDate = dateEl.value;
+  if (!selectedDate) { listEl.innerHTML = ''; return; }
+
+  // 해당 날짜에 이미 작성된 logId 목록
+  var doneLogIds = state.records
+    .filter(function(r) { return r.date === selectedDate && r.status !== '작성중'; })
+    .map(function(r) { return r.logId; });
+
+  var pending = state.logs.filter(function(l) { return !doneLogIds.includes(l.id); });
+
+  if (!pending.length) {
+    listEl.innerHTML = '<p style="color:#27ae60;font-size:13px;text-align:center;padding:10px;">✅ 모든 일지가 작성되어 있습니다.</p>';
+    return;
+  }
+
+  var html =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+      '<span style="font-size:12px;color:#666;">미작성 일지 ' + pending.length + '건</span>' +
+      '<button onclick="togglePostSelectAll()" id="post-select-all-btn" ' +
+        'style="font-size:12px;padding:5px 10px;border-radius:6px;border:1px solid #ddd;background:white;cursor:pointer;">전체선택</button>' +
+    '</div>' +
+    '<div style="border:1px solid #eee;border-radius:10px;overflow:hidden;">';
+
+  pending.forEach(function(log, idx) {
+    var borderTop = idx > 0 ? 'border-top:1px solid #f0f0f0;' : '';
+    html +=
+      '<label style="display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;' + borderTop + '">' +
+        '<input type="checkbox" class="post-log-check" data-id="' + log.id + '" data-title="' + log.title + '" ' +
+          'style="width:18px;height:18px;cursor:pointer;" checked>' +
+        '<span style="font-size:14px;">' + log.title + '</span>' +
+        '<span style="margin-left:auto;font-size:11px;color:#aaa;">' + log.interval + '</span>' +
+      '</label>';
+  });
+
+  html += '</div>';
+  listEl.innerHTML = html;
+}
+
+/**
+ * 사후작성 전체선택 토글
+ */
+function togglePostSelectAll() {
+  var checkboxes = document.querySelectorAll('.post-log-check');
+  var allChecked = Array.from(checkboxes).every(function(cb) { return cb.checked; });
+  checkboxes.forEach(function(cb) { cb.checked = !allChecked; });
+  var btn = document.getElementById('post-select-all-btn');
+  if (btn) btn.innerText = allChecked ? '전체선택' : '전체해제';
+}
+
+/**
+ * 선택된 일지 일괄 생성
+ */
+function executePostCreateBatch() {
+  var date      = document.getElementById('post-date').value;
+  var checked   = document.querySelectorAll('.post-log-check:checked');
+  if (!date)           { showToast('날짜를 선택해주세요.', 'error'); return; }
+  if (!checked.length) { showToast('생성할 일지를 선택해주세요.', 'error'); return; }
+
+  var targets = Array.from(checked).map(function(cb) {
+    return { logId: cb.dataset.id, title: cb.dataset.title };
+  });
+
+  if (!confirm(date + ' / ' + targets.length + '건을 생성하시겠습니까?')) return;
+
+  closeModal();
+  showLoading('생성 중... (0/' + targets.length + ')');
+
+  var created = 0;
+  (function next(idx) {
+    if (idx >= targets.length) {
+      showToast(targets.length + '건 생성 완료!', 'success');
       loadData();
-    })
-    .createNewLog(logId, logObj.title, state.user.id, state.user.name, date);
+      return;
+    }
+    var t = targets[idx];
+    google.script.run
+      .withSuccessHandler(function() {
+        created++;
+        document.getElementById('loading-msg').innerText = '생성 중... (' + created + '/' + targets.length + ')';
+        next(idx + 1);
+      })
+      .withFailureHandler(function() {
+        showToast(t.title + ' 생성 실패', 'error');
+        next(idx + 1);
+      })
+      .createNewLog(t.logId, t.title, state.user.id, state.user.name, date);
+  })(0);
 }
 </script>

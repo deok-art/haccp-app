@@ -3,9 +3,9 @@
     --primary:#2c3e50; --accent:#3498db;
     --success:#27ae60; --warning:#f39c12;
     --danger:#e74c3c; --bg:#f0f2f5;
-    --status-write:#e67e22;   /* 작성완료 — 주황 */
-    --status-review:#2980b9;  /* 검토완료 — 파랑 */
-    --status-approve:#27ae60; /* 승인완료 — 초록 */
+    --status-write:#e67e22;
+    --status-review:#2980b9;
+    --status-approve:#27ae60;
     --interval-daily:#3498db;
     --interval-weekly:#8e44ad;
     --interval-monthly:#16a085;
@@ -50,13 +50,9 @@
   /* ── 필터 버튼 ── */
   .sub-filter-container { display:flex;gap:8px;padding:10px 0;margin-bottom:5px;overflow-x:auto;-webkit-overflow-scrolling:touch; }
   .sub-filter-btn { padding:8px 14px;border-radius:20px;border:2px solid #ddd;background:white;color:#666;cursor:pointer;font-size:12px;font-weight:bold;white-space:nowrap;min-height:36px;transition:all 0.15s; }
-  /* 전체보기 */
   .sub-filter-btn:nth-child(1).active { background:var(--primary);color:white;border-color:var(--primary); }
-  /* 검토 대기 — 주황 */
   .sub-filter-btn:nth-child(2).active { background:var(--status-write);color:white;border-color:var(--status-write); }
-  /* 승인 대기 — 파랑 */
   .sub-filter-btn:nth-child(3).active { background:var(--status-review);color:white;border-color:var(--status-review); }
-  /* 최종 완료 — 초록 */
   .sub-filter-btn:nth-child(4).active { background:var(--status-approve);color:white;border-color:var(--status-approve); }
 
   /* ── 인터벌 섹션 ── */
@@ -93,6 +89,17 @@
   .btn-ghost-approve { border-color:var(--accent);color:var(--accent); }
   .btn-ghost-danger  { border-color:var(--danger);color:var(--danger); }
 
+  /* ── 전체 적합 버튼 (①개선) ── */
+  .btn-all-ok {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:8px 16px; border-radius:20px; border:none;
+    background:linear-gradient(135deg,#f39c12,#e67e22);
+    color:white; font-weight:bold; font-size:13px;
+    cursor:pointer; box-shadow:0 2px 8px rgba(230,126,34,0.35);
+    transition:all 0.15s;
+  }
+  .btn-all-ok:active { transform:scale(0.96); box-shadow:none; }
+
   /* ── 완료 카드 ── */
   .date-divider { padding:12px 5px 5px;font-weight:bold;color:var(--primary);border-bottom:2px solid #ddd;margin-bottom:10px;display:flex;align-items:center;gap:8px; }
   .done-card-wrap { position:relative;margin-bottom:12px; }
@@ -108,7 +115,6 @@
   /* ── 스테퍼 ── */
   .stepper { display:flex;gap:4px; }
   .step { font-size:11px;padding:3px 7px;border-radius:5px;background:#e8e8e8;color:#bbb;font-weight:bold; }
-  /* 상태별 색상 */
   .step-write  { background:var(--status-write);color:white; }
   .step-review { background:var(--status-review);color:white; }
   .step-approve{ background:var(--status-approve);color:white; }
@@ -163,7 +169,6 @@
   .form-bottom button { flex:1;padding:15px;border-radius:10px;border:none;font-weight:bold;cursor:pointer;font-size:15px;min-height:50px; }
   .btn-draft  { background:#eee;color:#333; }
   .btn-submit-form { background:var(--success);color:white; }
-  .btn-all-ok { background:#f39c12;color:white; }
 
   /* ── 모달 ── */
   .modal { position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box; }
@@ -187,39 +192,20 @@
   .view-sig-box img { max-width:100%;max-height:60px;margin-top:5px; }
   .sig-label { font-size:11px;color:#999;margin-bottom:4px; }
 
-  /* ── 서명 캔버스 (개선) ── */
+  /* ── 서명 캔버스 ── */
   .sig-canvas-wrap {
-    position:relative;
-    border-radius:12px;
-    overflow:hidden;
-    border:2px solid #ddd;
-    background:#fafafa;
+    position:relative; border-radius:12px; overflow:hidden;
+    border:2px solid #ddd; background:#fafafa;
     box-shadow:inset 0 2px 6px rgba(0,0,0,0.05);
   }
-  /* 가로줄 가이드 (lined paper 느낌) */
   .sig-guide-lines {
-    position:absolute;inset:0;pointer-events:none;
+    position:absolute; inset:0; pointer-events:none;
     background-image:repeating-linear-gradient(
-      to bottom,
-      transparent 0px,
-      transparent 39px,
-      #e8e8e8 39px,
-      #e8e8e8 40px
+      to bottom, transparent 0px, transparent 39px, #e8e8e8 39px, #e8e8e8 40px
     );
   }
-  #sig-canvas {
-    position:relative;
-    width:100%;
-    display:block;
-    touch-action:none;
-    background:transparent;
-  }
-  /* 서명 버튼 */
-  .sig-btn {
-    flex:1; padding:13px; border-radius:10px; border:none;
-    font-weight:bold; cursor:pointer; font-size:14px;
-    min-height:48px; transition:opacity 0.15s;
-  }
+  #sig-canvas { position:relative; width:100%; display:block; touch-action:none; background:transparent; }
+  .sig-btn { flex:1; padding:13px; border-radius:10px; border:none; font-weight:bold; cursor:pointer; font-size:14px; min-height:48px; transition:opacity 0.15s; }
   .sig-btn:active { opacity:0.8; }
   .sig-btn-clear { background:#f0f0f0; color:#555; }
   .sig-btn-save  { background:var(--success); color:white; }
@@ -240,9 +226,9 @@
   /* ── 푸터 ── */
   .system-footer { text-align:center;padding:20px 15px;color:#999;font-size:11px;line-height:1.8;word-break:keep-all;display:block;width:100%;box-sizing:border-box; }
 
-  /* ════════════════════════════════════════
-     모바일 반응형 (480px 이하)
-  ════════════════════════════════════════ */
+  /* ════════════════
+     모바일 (480px↓)
+  ════════════════ */
   @media (max-width: 480px) {
     .login-card { padding:30px 20px;margin:5vh 15px; }
     .common-header { padding:8px 12px; }
@@ -279,11 +265,12 @@
     .edit-tool-btn { padding:5px 8px;font-size:11px; }
     .selection-bar { padding:10px 15px;font-size:13px; }
     .toast { font-size:12px;padding:10px 14px; }
+    .btn-all-ok { font-size:12px;padding:7px 12px; }
   }
 
-  /* ════════════════════════════════════════
-     태블릿 (481px ~ 768px)
-  ════════════════════════════════════════ */
+  /* ════════════════
+     태블릿 (481~768)
+  ════════════════ */
   @media (min-width: 481px) and (max-width: 768px) {
     .form-row { flex-direction:column; }
     .log-card-title { font-size:14px; }

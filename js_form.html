@@ -4,32 +4,21 @@
 // ════════════════════════════════════════════════════════
 
 // ── 폼 열기 (일지 종류별 라우터) ───────────────────────
-/**
- * @param {string} recordId
- * @param {string} logId      - Logs 시트의 id값 (예: 'hi01', 'fo01')
- * @param {string} title
- * @param {string} date
- */
 function openForm(recordId, logId, title, date) {
   currentRecordId = recordId;
   currentLogInfo  = { logId: logId, logTitle: title };
 
-  // 폼 상태 초기화
   formState = { checkData: {}, defectTexts: {}, actionTexts: {}, defectPhotos: {}, actionPhotos: {} };
 
   var formArea = document.getElementById('form-scroll-area');
   document.getElementById('form-title').innerText = title;
 
-  // ── 일지 종류별 분기 ──────────────────────────────────
-  // 새 일지 추가 시 여기에 else if 블록 추가
+  // ── 일지 종류별 분기 (새 일지 추가 시 여기에 else if 추가) ──
   if (logId === 'fo01') {
-    // 이물관리 점검표
-    var tpl = document.getElementById('tpl-foreign-body');
+    var tpl = document.getElementById('tpl-fo01');
     if (tpl) formArea.innerHTML = tpl.innerHTML;
     if (typeof initForeignBodyForm === 'function') initForeignBodyForm(date);
-
   } else {
-    // 기본 위생점검(P01) 양식 — 구현된 일지가 없을 때 폴백으로도 사용
     if (genericFormHtml) formArea.innerHTML = genericFormHtml;
     initGenericForm(date);
   }
@@ -39,7 +28,7 @@ function openForm(recordId, logId, title, date) {
   document.getElementById('form-screen').classList.remove('hidden');
 }
 
-// ── 기본 위생점검 양식 (P01) ───────────────────────────
+// ── 기본 위생점검 양식 ─────────────────────────────────
 function initGenericForm(date) {
   document.getElementById('f-date').value   = date || state.serverToday;
   document.getElementById('f-writer').value = state.user.name;
@@ -114,7 +103,6 @@ function setAllOk() {
 function collectFormData() {
   if (currentLogInfo.logId === 'fo01') return collectForeignBodyData();
 
-  // 기본 양식
   var data = {
     temperature: document.getElementById('f-temp').value,
     memo:        document.getElementById('f-memo').value,
@@ -138,7 +126,6 @@ function collectFormData() {
 function validateForm(data) {
   if (currentLogInfo.logId === 'fo01') return validateForeignBody(data);
 
-  // 기본 양식 검증
   if (!data.temperature && data.temperature !== 0) {
     showToast('온도를 입력해주세요!', 'error'); return false;
   }
@@ -171,26 +158,46 @@ function getDefectSummary(data) {
   return '';
 }
 
-// ── 저장/제출 ──────────────────────────────────────────
+// ── 저장 후 나가기 ─────────────────────────────────────
+/**
+ * ② 저장 후 나가기 — 해당 카드에 로딩 오버레이, 완료 시 해제
+ */
 function saveDraftAndBack() {
+  var recordId = currentRecordId;
+  var logId    = currentLogInfo.logId;
   var dataJson = JSON.stringify(collectFormData());
+
   document.getElementById('form-screen').classList.add('hidden');
   document.getElementById('main-screen').classList.remove('hidden');
-  showToast('임시저장 중...', 'info');
+
+  // 카드 로딩 표시 (작성중 카드가 done 탭이 아닌 todo 탭에 있으므로 wrap id로 시도, 없으면 무시)
+  showCardLoading(recordId);
+
+  function onDone() {
+    hideCardLoading(recordId);
+    refreshRecordsBackground();
+  }
 
   if (navigator.onLine) {
     google.script.run
-      .withSuccessHandler(function() { showToast('임시저장 완료 ✔', 'success'); })
-      .withFailureHandler(function() {
-        idbAdd({ type: 'saveDraft', recordId: currentRecordId, logId: currentLogInfo.logId, dataJson: dataJson }, null);
+      .withSuccessHandler(function(res) {
+        if (res && res.success) { showToast('임시저장 완료 ✔', 'success'); }
+        else { showToast('저장 실패, 오프라인 큐에 저장됨', 'info'); idbAdd({ type: 'saveDraft', recordId: recordId, logId: logId, dataJson: dataJson }, null); }
+        onDone();
       })
-      .saveDraft(currentRecordId, currentLogInfo.logId, dataJson);
+      .withFailureHandler(function() {
+        idbAdd({ type: 'saveDraft', recordId: recordId, logId: logId, dataJson: dataJson }, null);
+        showToast('오프라인 저장됨', 'info');
+        onDone();
+      })
+      .saveDraft(recordId, logId, dataJson);
   } else {
-    idbAdd({ type: 'saveDraft', recordId: currentRecordId, logId: currentLogInfo.logId, dataJson: dataJson },
-      function() { showToast('오프라인 저장됨', 'info'); });
+    idbAdd({ type: 'saveDraft', recordId: recordId, logId: logId, dataJson: dataJson },
+      function() { showToast('오프라인 저장됨', 'info'); onDone(); });
   }
 }
 
+// ── 서명 후 제출 ───────────────────────────────────────
 function openSignModal() {
   var data = collectFormData();
   if (!validateForm(data)) return;
@@ -210,14 +217,17 @@ function openSignModal() {
 
 function submitForm() {
   closeModal();
+  var recordId   = currentRecordId;
+  var logId      = currentLogInfo.logId;
   var data       = collectFormData();
   var dataJson   = JSON.stringify(data);
   var defectInfo = getDefectSummary(data);
 
   // 로컬 상태 즉시 반영
   state.records.forEach(function(r) {
-    if (r.recordId === currentRecordId) { r.status = '작성완료'; r.defectInfo = defectInfo; }
+    if (r.recordId === recordId) { r.status = '작성완료'; r.defectInfo = defectInfo; }
   });
+
   document.getElementById('form-screen').classList.add('hidden');
   document.getElementById('main-screen').classList.remove('hidden');
   renderLists();
@@ -230,10 +240,10 @@ function submitForm() {
         else { saveToQueue(); }
       })
       .withFailureHandler(saveToQueue)
-      .saveFormData(currentRecordId, currentLogInfo.logId, dataJson, defectInfo);
+      .saveFormData(recordId, logId, dataJson, defectInfo);
   }
   function saveToQueue() {
-    idbAdd({ type: 'saveFormData', recordId: currentRecordId, logId: currentLogInfo.logId, dataJson: dataJson, defectInfo: defectInfo }, null);
+    idbAdd({ type: 'saveFormData', recordId: recordId, logId: logId, dataJson: dataJson, defectInfo: defectInfo }, null);
   }
 
   if (navigator.onLine) { doSave(); } else { saveToQueue(); showToast('오프라인 저장됨', 'info'); }
@@ -255,7 +265,6 @@ function viewRecord(recordId, logId, title) {
       var rec  = state.records.find(function(r) { return r.recordId === recordId; });
       var html = '';
 
-      // 일지 종류별 뷰어 분기
       if (rec.logId === 'fo01' && typeof buildForeignBodyViewHtml === 'function') {
         html = buildForeignBodyViewHtml(rec, res.dataJson, title);
       } else {
@@ -270,7 +279,7 @@ function viewRecord(recordId, logId, title) {
 }
 
 /**
- * 기본 위생점검 뷰어 HTML 생성
+ * 기본 위생점검 뷰어 HTML
  */
 function buildGenericViewHtml(rec, dataJsonStr, title) {
   var data = {};
