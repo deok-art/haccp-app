@@ -1,0 +1,320 @@
+<script>
+// ════════════════════════════════════════════════════════
+//  js_form.html — 폼 라우팅 / 수집·검증 / 제출 / 뷰어
+// ════════════════════════════════════════════════════════
+
+// ── 폼 열기 (일지 종류별 라우터) ───────────────────────
+/**
+ * @param {string} recordId
+ * @param {string} logId      - Logs 시트의 id값 (예: 'hi01', 'fo01')
+ * @param {string} title
+ * @param {string} date
+ */
+function openForm(recordId, logId, title, date) {
+  currentRecordId = recordId;
+  currentLogInfo  = { logId: logId, logTitle: title };
+
+  // 폼 상태 초기화
+  formState = { checkData: {}, defectTexts: {}, actionTexts: {}, defectPhotos: {}, actionPhotos: {} };
+
+  var formArea = document.getElementById('form-scroll-area');
+  document.getElementById('form-title').innerText = title;
+
+  // ── 일지 종류별 분기 ──────────────────────────────────
+  // 새 일지 추가 시 여기에 else if 블록 추가
+  if (logId === 'fo01') {
+    // 이물관리 점검표
+    var tpl = document.getElementById('tpl-foreign-body');
+    if (tpl) formArea.innerHTML = tpl.innerHTML;
+    if (typeof initForeignBodyForm === 'function') initForeignBodyForm(date);
+
+  } else {
+    // 기본 위생점검(P01) 양식 — 구현된 일지가 없을 때 폴백으로도 사용
+    if (genericFormHtml) formArea.innerHTML = genericFormHtml;
+    initGenericForm(date);
+  }
+
+  hideLoading();
+  document.getElementById('main-screen').classList.add('hidden');
+  document.getElementById('form-screen').classList.remove('hidden');
+}
+
+// ── 기본 위생점검 양식 (P01) ───────────────────────────
+function initGenericForm(date) {
+  document.getElementById('f-date').value   = date || state.serverToday;
+  document.getElementById('f-writer').value = state.user.name;
+  document.getElementById('f-temp').value   = '';
+  document.getElementById('f-memo').value   = '';
+  CHECK_ITEMS.forEach(function(item) { formState.checkData[item.key] = 'ok'; });
+  renderGenericCheckItems();
+}
+
+function renderGenericCheckItems() {
+  var container = document.getElementById('check-items-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  CHECK_ITEMS.forEach(function(item) {
+    var isNg = formState.checkData[item.key] === 'ng';
+    var row  = document.createElement('div');
+    row.className = 'check-item-row';
+    row.id        = 'row-' + item.key;
+    row.innerHTML =
+      '<div class="check-item-label">' + item.label + '</div>' +
+      '<div class="toggle-group">' +
+        '<button class="toggle-btn ok' + (!isNg ? ' selected' : '') + '" id="btn-ok-' + item.key +
+          '" onclick="selectGenericResult(\'' + item.key + '\',\'ok\')">✔ 적합</button>' +
+        '<button class="toggle-btn ng' + ( isNg ? ' selected' : '') + '" id="btn-ng-' + item.key +
+          '" onclick="selectGenericResult(\'' + item.key + '\',\'ng\')">✘ 부적합</button>' +
+      '</div>' +
+      '<div class="defect-input-area' + (isNg ? '' : ' hidden') + '" id="defect-area-' + item.key + '">' +
+        '<div class="defect-block">' +
+          '<label class="ng-label">⚠️ 부적합 내용 <span style="color:var(--danger);">*필수</span></label>' +
+          '<textarea id="defect-text-' + item.key + '" placeholder="부적합 내용을 입력하세요.">' +
+            (formState.defectTexts[item.key] || '') + '</textarea>' +
+          '<div class="photo-row">' +
+            '<div id="defect-photo-preview-' + item.key + '">' + getPhotoHtml('defect', item.key) + '</div>' +
+            '<button class="photo-add-btn" onclick="triggerPhoto(\'defect\',\'' + item.key + '\',\'camera\')"><span>📷</span>카메라</button>' +
+            '<button class="photo-add-btn gallery-btn" onclick="triggerPhoto(\'defect\',\'' + item.key + '\',\'gallery\')"><span>🖼</span>갤러리</button>' +
+            '<input type="file" accept="image/*" capture="environment" class="photo-input" id="photo-input-defect-camera-' + item.key + '" onchange="handlePhoto(\'defect\',\'' + item.key + '\',this,\'' + item.label + '\')">' +
+            '<input type="file" accept="image/*" class="photo-input" id="photo-input-defect-gallery-' + item.key + '" onchange="handlePhoto(\'defect\',\'' + item.key + '\',this,\'' + item.label + '\')">' +
+          '</div>' +
+        '</div>' +
+        '<div class="defect-block action-block">' +
+          '<label class="ok-label">✅ 개선조치 내용 <span style="color:var(--danger);">*필수</span></label>' +
+          '<textarea id="action-text-' + item.key + '" placeholder="개선조치 내용을 입력하세요.">' +
+            (formState.actionTexts[item.key] || '') + '</textarea>' +
+          '<div class="photo-row">' +
+            '<div id="action-photo-preview-' + item.key + '">' + getPhotoHtml('action', item.key) + '</div>' +
+            '<button class="photo-add-btn" onclick="triggerPhoto(\'action\',\'' + item.key + '\',\'camera\')"><span>📷</span>카메라</button>' +
+            '<button class="photo-add-btn gallery-btn" onclick="triggerPhoto(\'action\',\'' + item.key + '\',\'gallery\')"><span>🖼</span>갤러리</button>' +
+            '<input type="file" accept="image/*" capture="environment" class="photo-input" id="photo-input-action-camera-' + item.key + '" onchange="handlePhoto(\'action\',\'' + item.key + '\',this,\'' + item.label + '\')">' +
+            '<input type="file" accept="image/*" class="photo-input" id="photo-input-action-gallery-' + item.key + '" onchange="handlePhoto(\'action\',\'' + item.key + '\',this,\'' + item.label + '\')">' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    container.appendChild(row);
+  });
+}
+
+function selectGenericResult(key, result) {
+  formState.checkData[key] = result;
+  document.getElementById('btn-ok-' + key).classList.toggle('selected', result === 'ok');
+  document.getElementById('btn-ng-' + key).classList.toggle('selected', result === 'ng');
+  document.getElementById('defect-area-' + key).classList.toggle('hidden', result === 'ok');
+  if (result === 'ng') document.getElementById('defect-text-' + key).focus();
+}
+
+function setAllOk() {
+  CHECK_ITEMS.forEach(function(item) { selectGenericResult(item.key, 'ok'); });
+  showToast('전체 항목을 적합으로 설정했습니다.', 'success');
+}
+
+// ── 데이터 수집 라우터 ─────────────────────────────────
+function collectFormData() {
+  if (currentLogInfo.logId === 'fo01') return collectForeignBodyData();
+
+  // 기본 양식
+  var data = {
+    temperature: document.getElementById('f-temp').value,
+    memo:        document.getElementById('f-memo').value,
+    items:       {}
+  };
+  CHECK_ITEMS.forEach(function(item) {
+    var dtEl = document.getElementById('defect-text-' + item.key);
+    var atEl = document.getElementById('action-text-' + item.key);
+    data.items[item.key] = {
+      result:      formState.checkData[item.key],
+      defectText:  dtEl ? dtEl.value : '',
+      actionText:  atEl ? atEl.value : '',
+      defectPhoto: formState.defectPhotos[item.key] || '',
+      actionPhoto: formState.actionPhotos[item.key] || ''
+    };
+  });
+  return data;
+}
+
+// ── 검증 라우터 ────────────────────────────────────────
+function validateForm(data) {
+  if (currentLogInfo.logId === 'fo01') return validateForeignBody(data);
+
+  // 기본 양식 검증
+  if (!data.temperature && data.temperature !== 0) {
+    showToast('온도를 입력해주세요!', 'error'); return false;
+  }
+  var tempVal = parseFloat(data.temperature);
+  if (tempVal < -10 || tempVal > 50) {
+    if (!confirm('입력한 온도(' + tempVal + '℃)가 정상 범위를 벗어났습니다. 계속하시겠습니까?')) return false;
+  }
+  for (var i = 0; i < CHECK_ITEMS.length; i++) {
+    var item = CHECK_ITEMS[i];
+    var d    = data.items[item.key];
+    if (d.result === 'ng') {
+      if (!d.defectText.trim()) { showToast('[' + item.label + '] 부적합 내용을 입력해주세요!', 'error'); return false; }
+      if (!d.actionText.trim()) { showToast('[' + item.label + '] 개선조치 내용을 입력해주세요!', 'error'); return false; }
+    }
+  }
+  return true;
+}
+
+// ── 부적합 요약 라우터 ─────────────────────────────────
+function getDefectSummary(data) {
+  if (currentLogInfo.logId === 'fo01') return getForeignBodyDefectSummary(data);
+
+  for (var i = 0; i < CHECK_ITEMS.length; i++) {
+    var item = CHECK_ITEMS[i];
+    var d    = data.items[item.key];
+    if (d && d.result === 'ng') {
+      return JSON.stringify({ item: item.label, content: d.defectText, action: d.actionText });
+    }
+  }
+  return '';
+}
+
+// ── 저장/제출 ──────────────────────────────────────────
+function saveDraftAndBack() {
+  var dataJson = JSON.stringify(collectFormData());
+  document.getElementById('form-screen').classList.add('hidden');
+  document.getElementById('main-screen').classList.remove('hidden');
+  showToast('임시저장 중...', 'info');
+
+  if (navigator.onLine) {
+    google.script.run
+      .withSuccessHandler(function() { showToast('임시저장 완료 ✔', 'success'); })
+      .withFailureHandler(function() {
+        idbAdd({ type: 'saveDraft', recordId: currentRecordId, logId: currentLogInfo.logId, dataJson: dataJson }, null);
+      })
+      .saveDraft(currentRecordId, currentLogInfo.logId, dataJson);
+  } else {
+    idbAdd({ type: 'saveDraft', recordId: currentRecordId, logId: currentLogInfo.logId, dataJson: dataJson },
+      function() { showToast('오프라인 저장됨', 'info'); });
+  }
+}
+
+function openSignModal() {
+  var data = collectFormData();
+  if (!validateForm(data)) return;
+
+  openModal('✍ 서명 확인',
+    '<p style="font-size:13px;color:#555;margin-bottom:10px;">아래 서명으로 제출합니다.<br>' +
+    '<strong style="color:var(--danger);">제출 후에는 수정이 불가능합니다.</strong></p>' +
+    '<div style="text-align:center;border:1px solid #ddd;border-radius:8px;padding:10px;background:#f9f9f9;margin-bottom:15px;">' +
+      '<img src="' + state.user.signature + '" style="max-height:100px;max-width:100%;" alt="서명">' +
+    '</div>' +
+    '<div class="btn-group">' +
+      '<button onclick="closeModal()" class="btn-flex" style="background:#eee;">취소</button>' +
+      '<button onclick="submitForm()" class="btn-flex btn-primary" style="background:var(--success);">✔ 제출 확정</button>' +
+    '</div>',
+    true);
+}
+
+function submitForm() {
+  closeModal();
+  var data       = collectFormData();
+  var dataJson   = JSON.stringify(data);
+  var defectInfo = getDefectSummary(data);
+
+  // 로컬 상태 즉시 반영
+  state.records.forEach(function(r) {
+    if (r.recordId === currentRecordId) { r.status = '작성완료'; r.defectInfo = defectInfo; }
+  });
+  document.getElementById('form-screen').classList.add('hidden');
+  document.getElementById('main-screen').classList.remove('hidden');
+  renderLists();
+  showToast('제출 완료! 서버 저장 중...', 'info');
+
+  function doSave() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) { showToast('서버 저장 완료 ✔', 'success'); }
+        else { saveToQueue(); }
+      })
+      .withFailureHandler(saveToQueue)
+      .saveFormData(currentRecordId, currentLogInfo.logId, dataJson, defectInfo);
+  }
+  function saveToQueue() {
+    idbAdd({ type: 'saveFormData', recordId: currentRecordId, logId: currentLogInfo.logId, dataJson: dataJson, defectInfo: defectInfo }, null);
+  }
+
+  if (navigator.onLine) { doSave(); } else { saveToQueue(); showToast('오프라인 저장됨', 'info'); }
+}
+
+// ── 일지 뷰어 라우터 ───────────────────────────────────
+function viewRecord(recordId, logId, title) {
+  openModal('📋 ' + title,
+    '<div style="text-align:center;padding:20px;"><div class="spinner" style="margin:0 auto;"></div>' +
+    '<p style="color:#999;margin-top:10px;">불러오는 중...</p></div>',
+    true);
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) {
+        document.getElementById('modal-body').innerHTML = '<p style="color:red;">불러오기 실패: ' + res.message + '</p>';
+        return;
+      }
+      var rec  = state.records.find(function(r) { return r.recordId === recordId; });
+      var html = '';
+
+      // 일지 종류별 뷰어 분기
+      if (rec.logId === 'fo01' && typeof buildForeignBodyViewHtml === 'function') {
+        html = buildForeignBodyViewHtml(rec, res.dataJson, title);
+      } else {
+        html = buildGenericViewHtml(rec, res.dataJson, title);
+      }
+      document.getElementById('modal-body').innerHTML = html;
+    })
+    .withFailureHandler(function() {
+      document.getElementById('modal-body').innerHTML = '<p style="color:red;">불러오기 실패</p>';
+    })
+    .getRecordDetail(recordId, logId);
+}
+
+/**
+ * 기본 위생점검 뷰어 HTML 생성
+ */
+function buildGenericViewHtml(rec, dataJsonStr, title) {
+  var data = {};
+  try { data = JSON.parse(dataJsonStr); } catch (e) {}
+  if (!data || !data.items) {
+    return '<p style="color:#999;text-align:center;padding:20px;">작성된 내용이 없습니다.</p>';
+  }
+
+  var itemsHtml = CHECK_ITEMS.map(function(item) {
+    var d          = data.items[item.key] || {};
+    var resultHtml = d.result === 'ok'
+      ? '<span class="result-ok">✔ 적합</span>'
+      : '<span class="result-ng">✘ 부적합</span>';
+    var photoHtml  = '';
+    if (d.result === 'ng') {
+      var defImg = d.defectPhoto ? '<br><img src="' + d.defectPhoto + '" style="max-width:120px;border-radius:6px;margin-top:4px;" onerror="this.style.display=\'none\'">' : '';
+      var actImg = d.actionPhoto ? '<br><img src="' + d.actionPhoto + '" style="max-width:120px;border-radius:6px;margin-top:4px;" onerror="this.style.display=\'none\'">' : '';
+      photoHtml =
+        '<br><span style="font-size:11px;color:#c0392b;">부적합: ' + (d.defectText || '-') + '</span>' + defImg +
+        '<br><span style="font-size:11px;color:#27ae60;">조치: '   + (d.actionText  || '-') + '</span>' + actImg;
+    }
+    return '<tr><td style="text-align:left;padding-left:10px;">' + item.label + '</td><td>' + resultHtml + photoHtml + '</td></tr>';
+  }).join('');
+
+  var sigHtml = '<div class="view-sig-row">';
+  ['작성', '검토', '승인'].forEach(function(label) {
+    var name   = label === '작성' ? (rec.writerName || '-') : (label === '검토' ? (rec.reviewer || '-') : (rec.approver || '-'));
+    var sigImg = (label === '작성' && state.user.signature && rec.writerId === state.user.id)
+      ? '<img src="' + state.user.signature + '" alt="서명">'
+      : '<span style="color:#ccc;font-size:12px;">서명없음</span>';
+    sigHtml += '<div class="view-sig-box"><div class="sig-label">' + label + '</div><strong style="font-size:13px;">' + name + '</strong><br>' + sigImg + '</div>';
+  });
+  sigHtml += '</div>';
+
+  return '<div class="view-form-wrap">' +
+    '<table class="view-header-table">' +
+      '<tr><td class="label">문서명</td><td>' + title + '</td><td class="label">점검일</td><td>' + (rec.date || '-') + '</td></tr>' +
+      '<tr><td class="label">점검자</td><td>' + (rec.writerName || '-') + '</td><td class="label">온도</td><td>' + (data.temperature || '-') + ' ℃</td></tr>' +
+    '</table>' +
+    '<table class="view-check-table">' +
+      '<tr><th style="width:55%">점검 항목</th><th>결과</th></tr>' +
+      itemsHtml +
+    '</table>' +
+    (data.memo ? '<div style="background:#f9f9f9;border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:15px;font-size:13px;"><strong>특이사항:</strong> ' + data.memo + '</div>' : '') +
+    sigHtml + '</div>';
+}
+</script>

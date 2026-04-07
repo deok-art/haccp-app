@@ -1,0 +1,302 @@
+<script>
+// ════════════════════════════════════════════════════════
+//  js_render.html — todo/done 목록 렌더링
+// ════════════════════════════════════════════════════════
+
+function renderLists() {
+  renderTodoList();
+  renderDoneList();
+}
+
+// ── 할일(미작성/작성중) 목록 ───────────────────────────
+function renderTodoList() {
+  var list = document.getElementById('todo-list');
+  list.innerHTML = '';
+
+  var groups = [
+    { key: '일간', label: '📋 일간 일지', cls: 'daily'   },
+    { key: '주간', label: '📅 주간 일지', cls: 'weekly'  },
+    { key: '월간', label: '📆 월간 일지', cls: 'monthly' }
+  ];
+
+  // 오늘 날짜의 상태별 레코드 분류
+  var writingRecs  = state.records.filter(function(r) {
+    return r.status === '작성중' && r.date === state.serverToday;
+  });
+  var writingIds   = writingRecs.map(function(r) { return r.logId; });
+  var doneIds      = state.records
+    .filter(function(r) { return r.date === state.serverToday && r.status !== '작성중'; })
+    .map(function(r) { return r.logId; });
+
+  var totalCount = 0;
+
+  groups.forEach(function(group) {
+    var logsInGroup = state.logs.filter(function(l) { return l.interval === group.key; });
+    if (!logsInGroup.length) return;
+
+    var section = document.createElement('div');
+    section.className = 'interval-section';
+
+    var header = document.createElement('div');
+    header.className = 'interval-header ' + group.cls;
+    header.innerHTML = group.label +
+      '<span style="margin-left:auto;font-size:12px;opacity:0.7;">' + logsInGroup.length + '건</span>';
+    section.appendChild(header);
+
+    logsInGroup.forEach(function(log) {
+      if (doneIds.includes(log.id)) return; // 이미 완료된 일지는 할일 목록에서 제외
+
+      var isWriting = writingIds.includes(log.id);
+      var rec       = isWriting ? writingRecs.find(function(r) { return r.logId === log.id; }) : null;
+
+      var card = document.createElement('div');
+      card.className = 'log-card ' + (isWriting ? 'writing' : 'unstarted');
+      card.id        = 'log-card-' + log.id;
+
+      var actionHtml = '';
+      if (isWriting) {
+        actionHtml =
+          '<button class="action-btn btn-submit" onclick="event.stopPropagation();openForm(\'' +
+            rec.recordId + '\',\'' + log.id + '\',\'' + log.title + '\',\'' + rec.date + '\')">작성하기</button>' +
+          '<button class="action-btn btn-cancel-write" onclick="event.stopPropagation();cancelRecord(\'' +
+            rec.recordId + '\',\'' + log.title + '\')">작성취소</button>';
+      }
+
+      card.innerHTML =
+        '<div class="status-dot ' + (isWriting ? 'writing' : 'unstarted') + '"></div>' +
+        '<div class="log-card-body">' +
+          '<div class="log-card-title">' + log.title + '</div>' +
+          '<div class="log-card-sub">' + (isWriting ? '✏️ 작성 중 · ' + rec.date : '⬜ 미작성') + '</div>' +
+        '</div>' +
+        '<div class="log-card-action" id="card-action-' + log.id + '">' + actionHtml + '</div>';
+
+      if (!isWriting) {
+        card.onclick = (function(logId, title, cardElem) {
+          return function() { startNewLog(logId, title, cardElem); };
+        })(log.id, log.title, card);
+      }
+
+      section.appendChild(card);
+      totalCount++;
+    });
+
+    list.appendChild(section);
+  });
+
+  document.getElementById('todo-count').innerText = totalCount;
+}
+
+/**
+ * 새 일지 레코드 생성 후 폼 열기
+ * 전체 로딩 오버레이로 중복 클릭 방지
+ */
+function startNewLog(logId, title, cardElem) {
+  cardElem.onclick = null; // 중복 클릭 차단
+  showLoading('일지 생성 중...');
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        state.records.push({
+          recordId: res.recordId, logId: logId, title: title,
+          date: state.serverToday, writerId: state.user.id,
+          writerName: state.user.name, reviewer: '', approver: '',
+          status: '작성중', pdfLink: '', defectInfo: ''
+        });
+        openForm(res.recordId, logId, title, state.serverToday);
+      } else {
+        hideLoading();
+        showToast('일지 생성 실패: ' + (res.message || ''), 'error');
+        // 실패 시 클릭 복원
+        cardElem.onclick = (function(lid, t, ce) {
+          return function() { startNewLog(lid, t, ce); };
+        })(logId, title, cardElem);
+      }
+    })
+    .withFailureHandler(function() {
+      hideLoading();
+      showToast('서버 통신 오류. 다시 시도해주세요.', 'error');
+      cardElem.onclick = (function(lid, t, ce) {
+        return function() { startNewLog(lid, t, ce); };
+      })(logId, title, cardElem);
+    })
+    .createNewLog(logId, title, state.user.id, state.user.name, state.serverToday);
+}
+
+/**
+ * 작성 취소 (작성중 → 삭제)
+ */
+function cancelRecord(recordId, title) {
+  if (!confirm('[' + title + '] 작성을 취소하시겠습니까?')) return;
+  showLoading('처리 중...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) {
+        state.records = state.records.filter(function(r) { return r.recordId !== recordId; });
+        hideLoading();
+        renderLists();
+      } else {
+        hideLoading();
+        alert(res.message);
+      }
+    })
+    .processRecordAction(recordId, 'CANCEL', state.user.id, state.user.name, state.user.role);
+}
+
+// ── 완료(결재/진행) 목록 ────────────────────────────────
+function renderDoneList() {
+  var list = document.getElementById('done-list');
+  list.innerHTML = '';
+
+  var recs = state.records.filter(function(r) { return r.status !== '작성중'; });
+
+  if (state.currentFilter === 'need-review')       recs = recs.filter(function(r) { return r.status === '작성완료'; });
+  else if (state.currentFilter === 'need-approve') recs = recs.filter(function(r) { return r.status === '검토완료'; });
+  else if (state.currentFilter === 'completed')    recs = recs.filter(function(r) { return r.status === '승인완료'; });
+
+  if (!recs.length) {
+    list.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">해당하는 일지가 없습니다.</p>';
+    document.getElementById('done-count').innerText =
+      state.records.filter(function(r) { return r.status !== '작성중'; }).length;
+    return;
+  }
+
+  // 날짜 내림차순 그룹화
+  var dates = Array.from(new Set(recs.map(function(r) { return r.date; }))).sort().reverse();
+  dates.forEach(function(date) {
+    var hdr = document.createElement('div');
+    hdr.className = 'date-divider';
+    hdr.innerHTML = '📅 ' + date + (date === state.serverToday ? ' (오늘)' : '');
+    list.appendChild(hdr);
+
+    recs.filter(function(r) { return r.date === date; })
+      .sort(function(a, b) {
+        // 부적합 건 상단 정렬
+        if (a.defectInfo && !b.defectInfo) return -1;
+        if (!a.defectInfo && b.defectInfo) return  1;
+        return b.recordId.localeCompare(a.recordId);
+      })
+      .forEach(function(rec) { list.appendChild(buildDoneCard(rec)); });
+  });
+
+  document.getElementById('done-count').innerText =
+    state.records.filter(function(r) { return r.status !== '작성중'; }).length;
+}
+
+/**
+ * 완료 카드 DOM 생성
+ */
+function buildDoneCard(rec) {
+  var role = parseInt(state.user.role);
+  var wrap = document.createElement('div');
+  wrap.className = 'done-card-wrap';
+  wrap.id        = 'card-wrap-' + rec.recordId;
+
+  // 부적합 미리보기
+  var defectHtml = '', hasDefect = false;
+  if (rec.defectInfo && rec.defectInfo !== 'undefined' && rec.defectInfo !== '') {
+    try {
+      var d = JSON.parse(rec.defectInfo);
+      defectHtml =
+        '<div class="defect-preview">' +
+          '<strong>⚠️ 부적합: ' + d.item + '</strong><br>' +
+          '내용: ' + d.content + '<br>' +
+          '<span style="color:#27ae60;">✅ 조치: ' + d.action + '</span>' +
+        '</div>';
+      hasDefect = true;
+    } catch (e) {}
+  }
+
+  // 스테퍼 — 상태별 색상 클래스 분리
+  var s1 = 'step step-write';
+  var s2 = (rec.status === '검토완료' || rec.status === '승인완료') ? 'step step-review' : 'step';
+  var s3 = rec.status === '승인완료' ? 'step step-approve' : 'step';
+
+  // 뱃지 색상: 작성완료=주황 / 검토완료=파랑 / 승인완료=초록
+  var badgeColor = rec.status === '승인완료' ? '#27ae60'
+                 : rec.status === '검토완료' ? '#2980b9'
+                 : '#e67e22';
+
+  // 결재 버튼
+  var btns = '';
+  if (!state.selectMode) {
+    if (role >= 2 && rec.status === '작성완료')
+      btns += '<button class="action-btn btn-review" onclick="doAction(\'' + rec.recordId + '\',\'REVIEW\',\'' + rec.title + '\')">검토</button>';
+    if (role >= 2 && rec.status === '검토완료')
+      btns += '<button class="btn-ghost btn-ghost-review" onclick="doAction(\'' + rec.recordId + '\',\'CANCEL_REVIEW\',\'' + rec.title + '\')">검토취소</button>';
+    if (role >= 3 && (rec.status === '검토완료' || rec.status === '작성완료'))
+      btns += '<button class="action-btn btn-approve" onclick="doAction(\'' + rec.recordId + '\',\'APPROVE\',\'' + rec.title + '\')">승인</button>';
+    if (role >= 3 && rec.status === '승인완료')
+      btns += '<button class="btn-ghost btn-ghost-approve" onclick="doAction(\'' + rec.recordId + '\',\'REVOKE\',\'' + rec.title + '\')">승인취소</button>';
+    if (rec.status === '작성완료' && rec.writerId === state.user.id)
+      btns += '<button class="btn-ghost btn-ghost-danger" onclick="doAction(\'' + rec.recordId + '\',\'CANCEL\',\'' + rec.title + '\')">작성취소</button>';
+  }
+
+  var checkbox = (state.selectMode && (rec.status !== '승인완료' || state.revokeMode))
+    ? '<input type="checkbox" class="card-check date-' + rec.date + '" data-id="' + rec.recordId +
+      '" data-status="' + rec.status + '" onchange="updateCount()">'
+    : '';
+
+  wrap.innerHTML =
+    '<div class="done-card' + (hasDefect ? ' defect' : '') + '">' +
+      checkbox +
+      '<div class="done-card-clickable" onclick="viewRecord(\'' + rec.recordId + '\',\'' + rec.logId + '\',\'' + rec.title + '\')">' +
+        '<span class="status-badge" style="background:' + badgeColor + '">' + rec.status + '</span>' +
+        '<h4 style="margin:5px 0;font-size:14px;">' + rec.title + '</h4>' +
+        '<div style="font-size:11px;color:#888;">작성: ' + rec.writerName +
+          (rec.reviewer  ? ' · 검토: ' + rec.reviewer  : '') +
+          (rec.approver  ? ' · 승인: ' + rec.approver  : '') +
+        '</div>' +
+        defectHtml +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0;">' +
+        '<div class="stepper"><span class="' + s1 + '">작성</span><span class="' + s2 + '">검토</span><span class="' + s3 + '">승인</span></div>' +
+        '<div style="margin-top:8px;display:flex;flex-direction:column;gap:5px;align-items:flex-end;">' + btns + '</div>' +
+      '</div>' +
+    '</div>';
+
+  return wrap;
+}
+
+/**
+ * 단건 결재 액션 실행
+ */
+function doAction(recordId, action, title) {
+  var msgs = {
+    CANCEL:        '작성을 취소하시겠습니까?',
+    REVIEW:        '검토 처리하시겠습니까?',
+    CANCEL_REVIEW: '검토를 취소하시겠습니까?',
+    APPROVE:       '승인 처리하시겠습니까?',
+    REVOKE:        '승인을 취소하시겠습니까?'
+  };
+  if (!confirm('[' + title + '] ' + (msgs[action] || '처리하시겠습니까?'))) return;
+
+  showCardLoading(recordId);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideCardLoading(recordId);
+      if (res.success) {
+        if (action === 'CANCEL') {
+          state.records = state.records.filter(function(x) { return x.recordId !== recordId; });
+        } else {
+          state.records.forEach(function(r) {
+            if (r.recordId !== recordId) return;
+            if (action === 'CANCEL_REVIEW') { r.status = '작성완료'; r.reviewer  = ''; }
+            if (action === 'REVIEW')        { r.status = '검토완료'; r.reviewer  = state.user.name; }
+            if (action === 'APPROVE')       { r.status = '승인완료'; r.approver  = state.user.name; }
+            if (action === 'REVOKE')        { r.status = '검토완료'; r.approver  = ''; }
+          });
+        }
+        renderLists();
+        showToast('처리 완료!', 'success');
+      } else {
+        alert(res.message);
+      }
+    })
+    .withFailureHandler(function() {
+      hideCardLoading(recordId);
+      alert('서버 통신 오류');
+    })
+    .processRecordAction(recordId, action, state.user.id, state.user.name, state.user.role);
+}
+</script>

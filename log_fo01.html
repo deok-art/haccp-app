@@ -1,0 +1,282 @@
+<!--
+  log_fo01.html — 이물관리 점검표
+  문서번호: PBⅡ-FO-01 (Logs 시트 docNo 컬럼 기준)
+  logId:    fo01
+
+  ※ 새 일지 파일 작성 가이드
+     1. 이 파일을 복사해서 시작
+     2. FB_CHECK_ITEMS 를 해당 일지 항목으로 교체
+     3. logId 를 Logs 시트 id 값과 맞춤
+     4. index.html 하단 include 목록에 추가
+     5. js_form.html openForm() / viewRecord() 라우터에 else if 블록 추가
+-->
+
+<!-- ── 폼 템플릿 (openForm 호출 시 form-scroll-area에 삽입됨) ── -->
+<script type="text/template" id="tpl-fo01">
+  <div class="form-section">
+    <h3>1. 점검 기본 정보</h3>
+    <div class="input-group" style="margin-bottom:10px;">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">점검일자</label>
+      <input type="text" id="fb-date" readonly
+        style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#f5f5f5;">
+    </div>
+    <div class="input-group">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">점검자</label>
+      <input type="text" id="fb-writer" readonly
+        style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#f5f5f5;">
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+      <h3 style="margin:0;">2. 이물 관리 점검 항목</h3>
+      <button type="button" onclick="setAllFbOk()" class="btn-all-ok"
+        style="padding:8px 12px;border-radius:8px;border:none;background:#f39c12;color:white;font-weight:bold;cursor:pointer;">
+        ✔ 전체 적합
+      </button>
+    </div>
+    <div id="fb-check-items-container"></div>
+  </div>
+
+  <div class="form-section hidden" id="fb-defect-section"
+    style="border:2px solid var(--danger);background:#fff8f8;">
+    <h3 style="color:var(--danger);margin-top:0;border-bottom:2px solid #fdd;">
+      🚨 부적합 및 조치사항 기록
+      <span style="font-size:11px;color:#888;font-weight:normal;">*필수</span>
+    </h3>
+    <textarea id="fb-defect-memo"
+      placeholder="어떤 이물이 발견되었고, 어떻게 조치했는지 상세히 적어주세요."
+      style="width:100%;min-height:80px;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;resize:vertical;font-family:inherit;"></textarea>
+
+    <div class="photo-row" style="margin-top:10px;">
+      <div id="defect-photo-preview-fb_global"></div>
+      <button type="button" class="photo-add-btn"         onclick="triggerPhoto('defect','fb_global','camera')"><span>📷</span>카메라</button>
+      <button type="button" class="photo-add-btn gallery-btn" onclick="triggerPhoto('defect','fb_global','gallery')"><span>🖼</span>갤러리</button>
+      <input type="file" accept="image/*" capture="environment"
+        id="photo-input-defect-camera-fb_global"  style="display:none;"
+        onchange="handlePhoto('defect','fb_global',this,'이물_공통부적합')">
+      <input type="file" accept="image/*"
+        id="photo-input-defect-gallery-fb_global" style="display:none;"
+        onchange="handlePhoto('defect','fb_global',this,'이물_공통부적합')">
+    </div>
+  </div>
+</script>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  log_fo01.html — 이물관리 점검표 로직
+//  전역 state, formState, showToast, triggerPhoto,
+//  handlePhoto, getPhotoHtml 는 js_core / js_photo 참조
+// ════════════════════════════════════════════════════════
+
+// ── 점검 항목 정의 ─────────────────────────────────────
+// 공정명 | 관리항목 형태를 label로 표기
+var FB_CHECK_ITEMS = [
+  // 공통
+  { key: 'c_hygiene',   label: '[공통] 위생복 — 앞치마·토시 등 이물 발생 확인'        },
+  { key: 'c_pest',      label: '[공통] 방충·방서 — 포충등·트랩 이상 여부'             },
+  { key: 'c_equip',     label: '[공통] 설비/도구 — 작업·청소도구 파손 여부'           },
+  { key: 'c_clean',     label: '[공통] 위생점검 — Clean time 2회/일 실시 여부'        },
+  // 입고
+  { key: 'in_exterior', label: '[입고] 외관 — 이물 및 외포장 상태 확인'               },
+  { key: 'in_equip',    label: '[입고] 작업설비 — 파렛트 파손 여부 확인'             },
+  { key: 'in_etc',      label: '[입고] 기타 — 외부 출입 도크 밀폐 여부'               },
+  // 보관
+  { key: 'st_cold',     label: '[보관] 냉장·냉동 — 이물 혼입 여부 확인'              },
+  { key: 'st_tool',     label: '[보관] 도구 — 이동도구·파렛트 파손 여부'             },
+  // 해동
+  { key: 'th_raw',      label: '[해동] 원재료 — 외포장 이물 제거 확인'               },
+  { key: 'th_equip',    label: '[해동] 설비/도구 — 고주파해동기 청결·파손 확인'       },
+  // 방혈
+  { key: 'bl_raw',      label: '[방혈] 원재료 — 내포장 청결·이물 확인'               },
+  { key: 'bl_equip',    label: '[방혈] 설비/도구 — 해동 대차 청결·파손 확인'         },
+  // 전처리
+  { key: 'pr_raw',      label: '[전처리] 원재료 — 비가식부·이물 제거 확인'           },
+  { key: 'pr_pack',     label: '[전처리] 포장재 — 내포장재 조각·이물 유입 확인'       },
+  // 자숙
+  { key: 'bo_raw',      label: '[자숙] 원재료 — 이물 유입·작업환경 확인'             },
+  { key: 'bo_equip',    label: '[자숙] 설비/도구 — 자숙탱크 청결·파손 확인'          },
+  // 파쇄
+  { key: 'cr_raw',      label: '[파쇄] 원재료 — 규격·이물 유입 확인'                },
+  { key: 'cr_equip',    label: '[파쇄] 설비/도구 — 파쇄기 청결·파손 확인'           },
+  // (소스) 계량
+  { key: 'sm_sub',      label: '[소스계량] 부재료 — 이물 유입·작업환경 확인'         },
+  { key: 'sm_equip',    label: '[소스계량] 설비/도구 — 자숙탱크 청결·파손 확인'      },
+  // (소스) 배합/가열
+  { key: 'sh_sub',      label: '[소스배합/가열] 부재료 — 이물 유입·작업환경 확인'    },
+  { key: 'sh_equip',    label: '[소스배합/가열] 설비/도구 — 배합탱크 청결·파손 확인' },
+  // 내포장
+  { key: 'ip_raw',      label: '[내포장] 원재료 — 충진 이물·작업환경 확인'           },
+  { key: 'ip_equip1',   label: '[내포장] 설비/도구 — 내·외부 이물제거 청소상태'      },
+  { key: 'ip_equip2',   label: '[내포장] 설비/도구 — 정상작동·부식·마모 여부'        },
+  { key: 'ip_pack',     label: '[내포장] 포장재 — 파손·이물 유입 확인'               },
+  // X-ray
+  { key: 'xr_equip1',   label: '[X-ray검출] 설비/도구 — 내·외부 이물제거 청소상태'  },
+  { key: 'xr_equip2',   label: '[X-ray검출] 설비/도구 — 정상작동·부식·마모 여부'    },
+  // 중량선별
+  { key: 'ws_equip1',   label: '[중량선별] 설비/도구 — 내·외부 이물제거 청소상태'   },
+  { key: 'ws_equip2',   label: '[중량선별] 설비/도구 — 정상작동·부식·마모 여부'     },
+  // 멸균/살균
+  { key: 'st2_equip1',  label: '[멸균/살균] 설비/도구 — 내·외부 이물제거 청소상태'  },
+  { key: 'st2_equip2',  label: '[멸균/살균] 설비/도구 — 정상작동·부식·마모 여부'    },
+  // 제수
+  { key: 'dr_equip1',   label: '[제수] 설비/도구 — 내·외부 이물제거 청소상태'       },
+  { key: 'dr_equip2',   label: '[제수] 설비/도구 — 정상작동·부식·마모 여부'         },
+  // 외포장
+  { key: 'op_equip1',   label: '[외포장] 설비/도구 — 내·외부 이물제거 청소상태'     },
+  { key: 'op_equip2',   label: '[외포장] 설비/도구 — 정상작동·부식·마모 여부'       },
+  // 완제품 보관
+  { key: 'fp_product',  label: '[완제품보관] 완제품 — 구획·식별·적재 기준 확인'      },
+  { key: 'fp_env',      label: '[완제품보관] 환경 — 보관기준(온도·청결) 확인'        },
+  { key: 'fp_equip',    label: '[완제품보관] 설비/도구 — 파렛트 파손·청결 확인'      },
+  // 출하
+  { key: 'sh2_equip',   label: '[출하] 설비/도구 — 운반기구·차량 청결상태 확인'      },
+  { key: 'sh2_pack',    label: '[출하] 포장재 — 포장재 파손 여부 확인'               }
+];
+
+// ── 폼 초기화 ──────────────────────────────────────────
+function initForeignBodyForm(date) {
+  document.getElementById('fb-date').value   = date || state.serverToday;
+  document.getElementById('fb-writer').value = state.user.name;
+  FB_CHECK_ITEMS.forEach(function(item) { formState.checkData[item.key] = 'ok'; });
+  renderFbCheckItems();
+}
+
+// ── 항목 렌더링 ────────────────────────────────────────
+function renderFbCheckItems() {
+  var container = document.getElementById('fb-check-items-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  FB_CHECK_ITEMS.forEach(function(item) {
+    var isNg = formState.checkData[item.key] === 'ng';
+    var row  = document.createElement('div');
+    row.className = 'check-item-row';
+    row.innerHTML =
+      '<div class="check-item-label">' + item.label + '</div>' +
+      '<div class="toggle-group">' +
+        '<button class="toggle-btn ok' + (!isNg ? ' selected' : '') + '" id="fb-btn-ok-' + item.key +
+          '" onclick="selectFbResult(\'' + item.key + '\',\'ok\')">✔ 적합</button>' +
+        '<button class="toggle-btn ng' + ( isNg ? ' selected' : '') + '" id="fb-btn-ng-' + item.key +
+          '" onclick="selectFbResult(\'' + item.key + '\',\'ng\')">✘ 부적합</button>' +
+      '</div>';
+    container.appendChild(row);
+  });
+}
+
+// ── 적합/부적합 선택 ───────────────────────────────────
+function selectFbResult(key, result) {
+  formState.checkData[key] = result;
+  document.getElementById('fb-btn-ok-' + key).classList.toggle('selected', result === 'ok');
+  document.getElementById('fb-btn-ng-' + key).classList.toggle('selected', result === 'ng');
+
+  var hasNg      = FB_CHECK_ITEMS.some(function(item) { return formState.checkData[item.key] === 'ng'; });
+  var defectSec  = document.getElementById('fb-defect-section');
+
+  if (hasNg) {
+    defectSec.classList.remove('hidden');
+  } else {
+    defectSec.classList.add('hidden');
+    // 전부 적합으로 돌아오면 부적합 입력 초기화
+    document.getElementById('fb-defect-memo').value = '';
+    formState.defectPhotos['fb_global'] = '';
+    var pv = document.getElementById('defect-photo-preview-fb_global');
+    if (pv) pv.innerHTML = '';
+  }
+}
+
+// 전체 적합 버튼
+function setAllFbOk() {
+  FB_CHECK_ITEMS.forEach(function(item) { selectFbResult(item.key, 'ok'); });
+  showToast('전체 항목을 적합으로 설정했습니다.', 'success');
+}
+
+// ── 데이터 수집 ────────────────────────────────────────
+function collectForeignBodyData() {
+  var memoEl = document.getElementById('fb-defect-memo');
+  return {
+    items:       formState.checkData,
+    memo:        memoEl ? memoEl.value : '',
+    defectPhoto: formState.defectPhotos['fb_global'] || ''
+  };
+}
+
+// ── 검증 ───────────────────────────────────────────────
+function validateForeignBody(data) {
+  var hasNg = Object.values(data.items).indexOf('ng') > -1;
+  if (hasNg && (!data.memo || data.memo.trim() === '')) {
+    showToast('부적합 발생 시 조치사항 기록은 필수입니다!', 'error');
+    var memoEl = document.getElementById('fb-defect-memo');
+    if (memoEl) memoEl.focus();
+    return false;
+  }
+  return true;
+}
+
+// ── 부적합 요약 ────────────────────────────────────────
+function getForeignBodyDefectSummary(data) {
+  var ngItems = FB_CHECK_ITEMS
+    .filter(function(item) { return data.items[item.key] === 'ng'; })
+    .map(function(item) { return item.label; });
+
+  if (!ngItems.length) return '';
+
+  return JSON.stringify({
+    item:    ngItems.length > 1 ? ngItems[0] + ' 외 ' + (ngItems.length - 1) + '건' : ngItems[0],
+    content: data.memo,
+    action:  '사진/메모 참조'
+  });
+}
+
+// ── 뷰어 HTML 생성 ─────────────────────────────────────
+function buildForeignBodyViewHtml(rec, dataJsonStr, title) {
+  var data = {};
+  try { data = JSON.parse(dataJsonStr); } catch (e) {}
+  if (!data || !data.items) {
+    return '<p style="color:#999;text-align:center;padding:20px;">작성된 내용이 없습니다.</p>';
+  }
+
+  var itemsHtml = FB_CHECK_ITEMS.map(function(item) {
+    var result     = data.items[item.key];
+    var resultHtml = result === 'ok'
+      ? '<span class="result-ok">✔ 적합</span>'
+      : '<span class="result-ng">✘ 부적합</span>';
+    return '<tr><td style="text-align:left;padding-left:10px;">' + item.label + '</td><td>' + resultHtml + '</td></tr>';
+  }).join('');
+
+  var hasNg      = Object.values(data.items).indexOf('ng') > -1;
+  var defectHtml = '';
+  if (hasNg) {
+    var photoHtml = data.defectPhoto
+      ? '<br><img src="' + data.defectPhoto + '" style="max-width:100%;border-radius:6px;margin-top:10px;" onerror="this.style.display=\'none\'">'
+      : '';
+    defectHtml =
+      '<div style="background:#fffcfc;border:2px solid var(--danger);border-radius:8px;padding:15px;margin-bottom:15px;">' +
+        '<strong style="color:var(--danger);">🚨 부적합 조치사항</strong>' +
+        '<p style="font-size:13px;margin:5px 0;">' + (data.memo || '내용 없음') + '</p>' +
+        photoHtml +
+      '</div>';
+  }
+
+  var sigHtml = '<div class="view-sig-row">';
+  ['작성', '검토', '승인'].forEach(function(label) {
+    var name   = label === '작성' ? (rec.writerName || '-') : (label === '검토' ? (rec.reviewer || '-') : (rec.approver || '-'));
+    var sigImg = (label === '작성' && state.user.signature && rec.writerId === state.user.id)
+      ? '<img src="' + state.user.signature + '" alt="서명">'
+      : '<span style="color:#ccc;font-size:12px;">서명없음</span>';
+    sigHtml += '<div class="view-sig-box"><div class="sig-label">' + label + '</div><strong style="font-size:13px;">' + name + '</strong><br>' + sigImg + '</div>';
+  });
+  sigHtml += '</div>';
+
+  return '<div class="view-form-wrap">' +
+    '<table class="view-header-table">' +
+      '<tr><td class="label">문서명</td><td>' + title + '</td><td class="label">점검일</td><td>' + (rec.date || '-') + '</td></tr>' +
+      '<tr><td class="label">점검자</td><td colspan="3">' + (rec.writerName || '-') + '</td></tr>' +
+    '</table>' +
+    '<table class="view-check-table">' +
+      '<tr><th style="width:75%">점검 항목</th><th>결과</th></tr>' +
+      itemsHtml +
+    '</table>' +
+    defectHtml + sigHtml + '</div>';
+}
+</script>

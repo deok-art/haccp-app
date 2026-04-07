@@ -1,0 +1,253 @@
+<script>
+// ════════════════════════════════════════════════════════
+//  js_ui.html — 모달 / 서명 / 배치처리 / 관리자 기능
+// ════════════════════════════════════════════════════════
+
+// ── 모달 ───────────────────────────────────────────────
+function openModal(title, body, showClose) {
+  document.getElementById('modal-title').innerText   = title;
+  document.getElementById('modal-body').innerHTML    = body;
+  document.getElementById('modal-close').style.display = showClose ? 'block' : 'none';
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+}
+
+// ── 내 정보 / 비밀번호 변경 ─────────────────────────────
+function openMyInfo() {
+  openModal('내 정보',
+    '<p><strong>이름:</strong> ' + state.user.name + '</p>' +
+    '<p><strong>권한:</strong> ' + state.user.role + '등급</p><hr>' +
+    '<button onclick="showChangePw()" class="btn-primary" style="margin-bottom:10px;padding:10px;">비밀번호 변경</button><br>' +
+    '<button onclick="forceSignature(true)" class="btn-primary" style="padding:10px;">전자서명 재등록</button>',
+    true);
+}
+
+function showChangePw() {
+  openModal('비밀번호 변경',
+    '<input type="password" id="new-pw"      class="input-field" placeholder="새 비밀번호">' +
+    '<input type="password" id="new-pw-conf" class="input-field" placeholder="비밀번호 확인">' +
+    '<button onclick="submitNewPw()" class="btn-primary">변경 완료</button>',
+    true);
+}
+
+function forceChangePassword() {
+  openModal('비밀번호 변경 필요',
+    '<input type="password" id="new-pw"      class="input-field" placeholder="새 비밀번호">' +
+    '<input type="password" id="new-pw-conf" class="input-field" placeholder="비밀번호 확인">' +
+    '<button onclick="submitNewPw()" class="btn-primary">변경 완료</button>',
+    false);
+}
+
+function submitNewPw() {
+  var newPw = document.getElementById('new-pw').value;
+  var conf  = document.getElementById('new-pw-conf').value;
+  if (newPw.length < 4 || newPw !== conf) {
+    alert('비밀번호가 4자 미만이거나 일치하지 않습니다.');
+    return;
+  }
+  showLoading('변경 중...');
+  google.script.run
+    .withSuccessHandler(function() {
+      hideLoading();
+      closeModal();
+      alert('변경 완료! 다시 로그인하세요.');
+      handleLogout();
+    })
+    .updatePassword(state.user.id, newPw);
+}
+
+// ── 전자서명 ───────────────────────────────────────────
+function forceSignature(canClose) {
+  openModal('✍️ 전자서명 등록',
+    '<p style="font-size:12px;color:#888;margin:0 0 10px;">아래 박스 안에 서명해주세요.</p>' +
+    '<div class="sig-canvas-wrap">' +
+      '<div class="sig-guide-lines"></div>' +
+      '<canvas id="sig-canvas"></canvas>' +
+    '</div>' +
+    '<div style="display:flex;gap:10px;margin-top:14px;">' +
+      '<button onclick="clearSigCanvas()" class="sig-btn sig-btn-clear">↺ 다시 그리기</button>' +
+      '<button onclick="submitSignature()" class="sig-btn sig-btn-save">✔ 서명 저장</button>' +
+    '</div>',
+    canClose || false);
+  setTimeout(initSigCanvas, 100);
+}
+
+function initSigCanvas() {
+  canvas = document.getElementById('sig-canvas');
+  if (!canvas) return;
+  ctx            = canvas.getContext('2d');
+  canvas.width   = canvas.offsetWidth;
+  canvas.height  = 180;
+
+  canvas.onmousedown  = function(e) { sigDrawing = true;  sigDraw(e); };
+  canvas.onmouseup    = function()  { sigDrawing = false; ctx.beginPath(); };
+  canvas.onmousemove  = function(e) { sigDraw(e); };
+  canvas.ontouchstart = function(e) { e.preventDefault(); sigDrawing = true;  sigDraw(e.touches[0]); };
+  canvas.ontouchend   = function()  { sigDrawing = false; ctx.beginPath(); };
+  canvas.ontouchmove  = function(e) { e.preventDefault(); sigDraw(e.touches[0]); };
+}
+
+function sigDraw(e) {
+  if (!sigDrawing) return;
+  var rect = canvas.getBoundingClientRect();
+  ctx.lineWidth = 3;
+  ctx.lineCap   = 'round';
+  ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+  ctx.stroke();
+}
+
+function clearSigCanvas() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath();
+}
+
+function submitSignature() {
+  var sigData = canvas.toDataURL('image/png');
+  showLoading('저장 중...');
+  google.script.run
+    .withSuccessHandler(function() {
+      state.user.signature = sigData;
+      sessionStorage.setItem('haccp_user', JSON.stringify(state.user));
+      closeModal();
+      loginSuccess(state.user);
+    })
+    .saveSignature(state.user.id, sigData);
+}
+
+// ── 롱프레스 / 선택 모드 ────────────────────────────────
+function startPress(e, actionType) {
+  pressTimer = setTimeout(function() {
+    if (actionType === 'WRITE')       { executeBatchWrite();                return; }
+    if (actionType === 'REVIEW')      { executeBatchProcess('REVIEW');      return; }
+    if (actionType === 'APPROVE')     { executeBatchProcess('APPROVE');     return; }
+    if (actionType === 'SELECT_MODE') {
+      if (parseInt(state.user.role) < 3) return;
+      state.selectMode = true; state.revokeMode = false;
+      document.getElementById('batch-revoke-btn').style.display  = 'none';
+      document.getElementById('batch-approve-btn').style.display = '';
+      document.getElementById('selection-bar').classList.remove('hidden');
+      renderDoneList();
+    }
+    if (actionType === 'REVOKE_MODE') {
+      if (parseInt(state.user.role) < 3) return;
+      state.selectMode = true; state.revokeMode = true;
+      document.getElementById('batch-revoke-btn').style.display  = '';
+      document.getElementById('batch-approve-btn').style.display = 'none';
+      document.getElementById('selection-bar').classList.remove('hidden');
+      renderDoneList();
+    }
+  }, 1500);
+}
+
+function cancelPress() { clearTimeout(pressTimer); pressTimer = null; }
+
+function closeSelectMode() {
+  state.selectMode = false;
+  state.revokeMode = false;
+  document.getElementById('selection-bar').classList.add('hidden');
+  renderDoneList();
+}
+
+function updateCount() {
+  document.getElementById('selected-count').innerText =
+    document.querySelectorAll('.card-check:checked').length + '개 선택됨';
+}
+
+// ── 일괄 처리 ──────────────────────────────────────────
+function executeBatchApprove() {
+  var ids = Array.from(document.querySelectorAll('.card-check:checked')).map(function(cb) { return cb.dataset.id; });
+  if (!ids.length) { alert('선택된 일지가 없습니다.'); return; }
+  if (!confirm(ids.length + '개를 일괄승인하시겠습니까?')) return;
+  showLoading('처리 중...');
+  google.script.run
+    .withSuccessHandler(function() {
+      closeSelectMode();
+      showToast('일괄승인 완료!', 'success');
+      refreshRecordsBackground();
+      hideLoading();
+    })
+    .batchActionByIds(ids, 'APPROVE', state.user.name, state.user.role);
+}
+
+function executeBatchRevoke() {
+  var ids = Array.from(document.querySelectorAll('.card-check:checked')).map(function(cb) { return cb.dataset.id; });
+  if (!ids.length) { alert('선택된 일지가 없습니다.'); return; }
+  if (!confirm(ids.length + '개의 승인을 취소하시겠습니까?')) return;
+  showLoading('처리 중...');
+  google.script.run
+    .withSuccessHandler(function() {
+      closeSelectMode();
+      showToast('승인취소 완료!', 'info');
+      refreshRecordsBackground();
+      hideLoading();
+    })
+    .batchActionByIds(ids, 'REVOKE', state.user.name, state.user.role);
+}
+
+function executeBatchWrite() {
+  if (!confirm('미작성된 모든 일지를 일괄 자동 작성하시겠습니까?')) return;
+  showLoading('처리 중...');
+  google.script.run
+    .withSuccessHandler(function() {
+      showToast('일괄 작성 완료!', 'success');
+      loadData();
+    })
+    .batchWriteAllRecords(state.user.id, state.user.name);
+}
+
+function executeBatchProcess(action) {
+  var role = parseInt(state.user.role);
+  if (action === 'REVIEW'  && role < 2) { alert('검토 권한 없음'); return; }
+  if (action === 'APPROVE' && role < 3) { alert('승인 권한 없음'); return; }
+  var name = action === 'REVIEW' ? '검토완료' : '승인완료';
+  if (!confirm('오늘 대기 문서를 일괄 [' + name + '] 처리하시겠습니까?')) return;
+  showLoading('처리 중...');
+  google.script.run
+    .withSuccessHandler(function() {
+      showToast('일괄 ' + name + '!', 'success');
+      refreshRecordsBackground();
+      hideLoading();
+    })
+    .batchProcessRecords(action, state.user.name, state.user.role);
+}
+
+// ── 관리자 기능 ────────────────────────────────────────
+function runTestDataSetup() {
+  if (!confirm('테스트 일지 5종을 생성합니다.')) return;
+  showLoading('세팅 중...');
+  google.script.run
+    .withSuccessHandler(function() { showToast('세팅 완료!', 'success'); loadData(); switchTab('done'); })
+    .generateTestRecords();
+}
+
+function openPostWriter() {
+  var optHtml = '';
+  state.logs.forEach(function(l) { optHtml += '<option value="' + l.id + '">' + l.title + '</option>'; });
+  openModal('사후 작성 생성',
+    '<p style="font-size:12px;color:red;">* 관리자 전용: 과거 날짜 일지 강제 생성</p>' +
+    '<div style="margin-bottom:10px;"><label style="font-size:12px;">날짜</label>' +
+      '<input type="date" id="post-date" class="input-field" value="' + state.serverToday + '"></div>' +
+    '<div style="margin-bottom:15px;"><label style="font-size:12px;">일지 종류</label>' +
+      '<select id="post-log-id" class="input-field">' + optHtml + '</select></div>' +
+    '<button onclick="executePostCreate()" class="btn-primary">생성</button>',
+    true);
+}
+
+function executePostCreate() {
+  var date   = document.getElementById('post-date').value;
+  var logId  = document.getElementById('post-log-id').value;
+  var logObj = state.logs.find(function(l) { return l.id === logId; });
+  if (!logObj) return;
+  showLoading('생성 중...');
+  google.script.run
+    .withSuccessHandler(function() {
+      closeModal();
+      showToast(date + ' 일지 생성 완료!', 'success');
+      loadData();
+    })
+    .createNewLog(logId, logObj.title, state.user.id, state.user.name, date);
+}
+</script>

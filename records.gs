@@ -1,0 +1,242 @@
+// ── 일지 생성 / 저장 / 결재 처리 ────────────────────────
+
+/**
+ * 새 일지 레코드 생성
+ */
+function createNewLog(logId, title, writerId, writerName, targetDate) {
+  const master  = SS.getSheetByName('MasterRecords') || SS.insertSheet('MasterRecords');
+  const dateStr = targetDate || Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
+  const recordId = 'REC-' + new Date().getTime();
+
+  master.appendRow([recordId, logId, title, dateStr, writerId, writerName, '', '', '작성중', '', '']);
+
+  const detailSheet = SS.getSheetByName('Log_' + logId) || SS.insertSheet('Log_' + logId);
+  if (detailSheet.getLastRow() === 0) {
+    detailSheet.appendRow(['RecordID', 'Date', 'Writer', 'DataJson']);
+  }
+  detailSheet.appendRow([recordId, dateStr, writerName, JSON.stringify({})]);
+
+  return { success: true, recordId };
+}
+
+/**
+ * 임시저장
+ */
+function saveDraft(recordId, logId, dataJson) {
+  try {
+    _updateDetailJson(logId, recordId, dataJson);
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * 최종 제출 저장
+ */
+function saveFormData(recordId, logId, dataJson, defectInfo) {
+  try {
+    _updateDetailJson(logId, recordId, dataJson);
+
+    const master = SS.getSheetByName('MasterRecords');
+    if (master) {
+      const data = master.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]) === recordId) {
+          master.getRange(i + 1, 9).setValue('작성완료');
+          master.getRange(i + 1, 11).setValue(defectInfo);
+          break;
+        }
+      }
+    }
+
+    // 빈 양식 PDF 템플릿 자동 생성 (최초 제출 시)
+    checkAndGenerateTemplate(logId);
+
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * 레코드 상세 데이터 조회
+ */
+function getRecordDetail(recordId, logId) {
+  try {
+    const sheet = SS.getSheetByName('Log_' + logId);
+    if (!sheet) return { success: false, message: '시트 없음' };
+
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === recordId) {
+        return { success: true, dataJson: String(data[i][3]) };
+      }
+    }
+    return { success: false, message: '데이터 없음' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
+}
+
+/**
+ * 단건 결재 처리 (CANCEL / REVIEW / CANCEL_REVIEW / APPROVE / REVOKE)
+ */
+function processRecordAction(recordId, action, userId, userName, userRole) {
+  const sheet = SS.getSheetByName('MasterRecords');
+  const data  = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) !== recordId) continue;
+
+    const status   = String(data[i][8]);
+    const writerId = String(data[i][4]);
+    const role     = parseInt(userRole);
+
+    switch (action) {
+      case 'CANCEL':
+        if (writerId !== userId)      return { success: false, message: '본인 작성 문서만 취소할 수 있습니다.' };
+        if (status !== '작성완료')    return { success: false, message: '작성완료 상태에서만 취소 가능합니다.' };
+        sheet.getRange(i + 1, 7, 1, 3).setValues([['', '', '작성중']]);
+        return { success: true };
+
+      case 'CANCEL_REVIEW':
+        if (role < 2)              return { success: false, message: '검토 권한이 없습니다.' };
+        if (status !== '검토완료') return { success: false, message: '검토완료 상태에서만 취소 가능합니다.' };
+        sheet.getRange(i + 1, 7).setValue('');
+        sheet.getRange(i + 1, 9).setValue('작성완료');
+        return { success: true };
+
+      case 'REVIEW':
+        if (role < 2) return { success: false, message: '검토 권한이 없습니다.' };
+        sheet.getRange(i + 1, 7).setValue(userName);
+        sheet.getRange(i + 1, 9).setValue('검토완료');
+        return { success: true };
+
+      case 'APPROVE':
+        if (role < 3) return { success: false, message: '승인 권한이 없습니다.' };
+        sheet.getRange(i + 1, 8).setValue(userName);
+        sheet.getRange(i + 1, 9).setValue('승인완료');
+        return { success: true };
+
+      case 'REVOKE':
+        if (role < 3) return { success: false, message: '승인취소 권한이 없습니다.' };
+        sheet.getRange(i + 1, 8).setValue('');
+        sheet.getRange(i + 1, 9).setValue('검토완료');
+        return { success: true };
+    }
+  }
+
+  return { success: false, message: '일지를 찾을 수 없습니다.' };
+}
+
+/**
+ * 선택 ID 목록 일괄 결재 처리
+ */
+function batchActionByIds(ids, action, userName, userRole) {
+  const sheet = SS.getSheetByName('MasterRecords');
+  const data  = sheet.getDataRange().getValues();
+  const role  = parseInt(userRole);
+
+  for (let i = 1; i < data.length; i++) {
+    if (!ids.includes(String(data[i][0]))) continue;
+    if (action === 'APPROVE') {
+      sheet.getRange(i + 1, 8).setValue(userName);
+      sheet.getRange(i + 1, 9).setValue('승인완료');
+    }
+    if (action === 'REVOKE' && role >= 3) {
+      sheet.getRange(i + 1, 8).setValue('');
+      sheet.getRange(i + 1, 9).setValue('검토완료');
+    }
+  }
+  return { success: true };
+}
+
+/**
+ * 미작성 일지 일괄 자동 작성
+ */
+function batchWriteAllRecords(userId, userName) {
+  const logs     = getSafeData('Logs');
+  const todayStr = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
+  const doneIds  = getTodayMasterRecords(todayStr).map(r => r.logId);
+  const master   = SS.getSheetByName('MasterRecords');
+
+  logs.forEach(log => {
+    if (doneIds.includes(log.id)) return;
+    const recordId = 'REC-' + new Date().getTime() + Math.floor(Math.random() * 1000);
+    master.appendRow([recordId, log.id, log.title, todayStr, userId, userName, '', '', '작성완료', '', '']);
+    const ds = SS.getSheetByName('Log_' + log.id) || SS.insertSheet('Log_' + log.id);
+    if (ds.getLastRow() === 0) ds.appendRow(['RecordID', 'Date', 'Writer', 'DataJson']);
+    ds.appendRow([recordId, todayStr, userName, JSON.stringify({ autoFilled: true })]);
+  });
+
+  return { success: true };
+}
+
+/**
+ * 오늘 날짜 기준 일괄 검토/승인
+ */
+function batchProcessRecords(action, userName, userRole) {
+  const role = parseInt(userRole);
+  if (action === 'REVIEW'  && role < 2) return { success: false, message: '검토 권한이 없습니다.' };
+  if (action === 'APPROVE' && role < 3) return { success: false, message: '승인 권한이 없습니다.' };
+
+  const sheet    = SS.getSheetByName('MasterRecords');
+  const data     = sheet.getDataRange().getValues();
+  const todayStr = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
+
+  for (let i = 1; i < data.length; i++) {
+    const rowDate = data[i][3] instanceof Date
+      ? Utilities.formatDate(data[i][3], 'GMT+9', 'yyyy-MM-dd')
+      : String(data[i][3]);
+    if (rowDate !== todayStr) continue;
+
+    if (action === 'REVIEW'  && data[i][8] === '작성완료') {
+      sheet.getRange(i + 1, 7).setValue(userName);
+      sheet.getRange(i + 1, 9).setValue('검토완료');
+    }
+    if (action === 'APPROVE' && (data[i][8] === '검토완료' || data[i][8] === '작성완료')) {
+      sheet.getRange(i + 1, 8).setValue(userName);
+      sheet.getRange(i + 1, 9).setValue('승인완료');
+    }
+  }
+  return { success: true };
+}
+
+// ── 내부 헬퍼 ──────────────────────────────────────────
+
+/**
+ * Log_[logId] 시트에서 recordId 행의 DataJson 컬럼 업데이트
+ */
+function _updateDetailJson(logId, recordId, dataJson) {
+  const sheet = SS.getSheetByName('Log_' + logId);
+  if (!sheet) return;
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === recordId) {
+      sheet.getRange(i + 1, 4).setValue(dataJson);
+      break;
+    }
+  }
+}
+
+/**
+ * 빈 양식 PDF 자동 생성 (버전별 1회만)
+ */
+function checkAndGenerateTemplate(logId) {
+  const logs    = getSafeData('Logs');
+  const logMeta = logs.find(l => l.id === logId);
+  if (!logMeta || !logMeta.docNo) return;
+
+  const folderName = 'HACCP_양식';
+  const folders    = DriveApp.getFoldersByName(folderName);
+  const folder     = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+
+  const fileName = `${logMeta.docNo}_빈양식_${logMeta.version}.pdf`;
+  if (folder.getFilesByName(fileName).hasNext()) return; // 이미 존재하면 스킵
+
+  const html = `<h1>${logMeta.title} 빈 양식</h1><p>문서번호: ${logMeta.docNo}</p>`;
+  const blob = Utilities.newBlob(html, 'text/html').getAs('application/pdf');
+  blob.setName(fileName);
+  folder.createFile(blob);
+}

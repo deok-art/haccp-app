@@ -1,0 +1,353 @@
+<script>
+// ════════════════════════════════════════════════════════
+//  js_core.html — 전역 상태 / IndexedDB / 초기화 / 인증
+// ════════════════════════════════════════════════════════
+
+// ── 전역 에러 핸들러 ──────────────────────────────────────
+window.onerror = function(msg, url, line) {
+  document.body.innerHTML =
+    '<div style="padding:20px;color:red;font-weight:bold;text-align:center;">' +
+    '<h3>시스템 오류 발생</h3><p>' + msg + ' (Line:' + line + ')</p>' +
+    '<button onclick="location.reload()" style="padding:10px;margin-top:20px;">새로고침</button></div>';
+};
+
+// ── 전역 상태 ──────────────────────────────────────────
+var state = {
+  user:          null,
+  settings:      {},
+  logs:          [],
+  records:       [],
+  currentFilter: 'all',
+  selectMode:    false,
+  revokeMode:    false,
+  serverToday:   '',
+  noticeHidden:  false
+};
+
+// 폼 작성 중 임시 데이터
+var formState = {
+  checkData:    {},
+  defectTexts:  {},
+  actionTexts:  {},
+  defectPhotos: {},
+  actionPhotos: {}
+};
+
+// 이미지 편집 상태
+var editState = {
+  tool:       'circle',
+  color:      '#ff0000',
+  targetKey:  null,
+  targetType: null,
+  baseImg:    null,
+  shapes:     [],
+  drawing:    false,
+  startX:     0,
+  startY:     0
+};
+
+// 현재 열려있는 레코드 정보 (DOM 덮어쓰기 방지용 전역 관리)
+var currentRecordId  = '';
+var currentLogInfo   = { logId: '', logTitle: '' };
+
+// 기본(P01) 양식 HTML 캐시
+var genericFormHtml  = '';
+
+// 기본 점검 항목 (P01 위생점검용)
+var CHECK_ITEMS = [
+  { key: 'floor',   label: '작업장 바닥 청결 상태' },
+  { key: 'hygiene', label: '개인 위생복 착용 상태' },
+  { key: 'hands',   label: '작업 전 손세정 여부'   },
+  { key: 'equip',   label: '설비·기계 청결 상태'   },
+  { key: 'pest',    label: '방충·방서 이상 없음'   }
+];
+
+// 롱프레스 타이머
+var pressTimer = null;
+
+// 서명 캔버스 관련
+var canvas, ctx, sigDrawing = false;
+
+// ── IndexedDB (오프라인 저장 큐) ───────────────────────
+var DB_NAME  = 'haccpOfflineDB';
+var DB_VER   = 1;
+var DB_STORE = 'syncQueue';
+var idb      = null;
+
+function initIDB(cb) {
+  var req = indexedDB.open(DB_NAME, DB_VER);
+  req.onupgradeneeded = function(e) {
+    e.target.result.createObjectStore(DB_STORE, { autoIncrement: true });
+  };
+  req.onsuccess = function(e) { idb = e.target.result; if (cb) cb(); };
+  req.onerror   = function()  { if (cb) cb(); };
+}
+
+function idbAdd(data, cb) {
+  if (!idb) { if (cb) cb(false); return; }
+  var tx  = idb.transaction(DB_STORE, 'readwrite');
+  var req = tx.objectStore(DB_STORE).add(data);
+  req.onsuccess = function(e) { if (cb) cb(e.target.result); };
+  req.onerror   = function()  { if (cb) cb(false); };
+}
+
+function idbGetAll(cb) {
+  if (!idb) { cb([], []); return; }
+  var results = [], keys = [];
+  var tx = idb.transaction(DB_STORE, 'readonly');
+  tx.objectStore(DB_STORE).openCursor().onsuccess = function(e) {
+    var cur = e.target.result;
+    if (cur) { results.push(cur.value); keys.push(cur.key); cur.continue(); }
+    else cb(results, keys);
+  };
+}
+
+function idbDelete(key, cb) {
+  if (!idb) { if (cb) cb(); return; }
+  var tx = idb.transaction(DB_STORE, 'readwrite');
+  tx.objectStore(DB_STORE).delete(key);
+  tx.oncomplete = function() { if (cb) cb(); };
+}
+
+/**
+ * 온라인 복귀 시 IndexedDB 큐 일괄 동기화
+ */
+function flushQueue() {
+  idbGetAll(function(items, keys) {
+    if (!items.length) return;
+    showToast('오프라인 저장 데이터 ' + items.length + '건 동기화 중...', 'info');
+    (function next(idx) {
+      if (idx >= items.length) {
+        showToast('동기화 완료!', 'success');
+        refreshRecordsBackground();
+        return;
+      }
+      var item = items[idx];
+      google.script.run
+        .withSuccessHandler(function() {
+          idbDelete(keys[idx], function() { next(idx + 1); });
+        })
+        .withFailureHandler(function() { next(idx + 1); })
+        .saveFormData(item.recordId, item.logId, item.dataJson, item.defectInfo);
+    })(0);
+  });
+}
+
+window.addEventListener('online',  function() { showToast('인터넷 연결됨', 'info'); flushQueue(); });
+window.addEventListener('offline', function() { showToast('오프라인 상태입니다.', 'info'); });
+
+// ── 앱 초기화 ──────────────────────────────────────────
+window.onload = function() {
+  // 기본 P01 양식 HTML 캐시 (form-scroll-area 초기 내용)
+  var formArea = document.getElementById('form-scroll-area');
+  if (formArea) genericFormHtml = formArea.innerHTML;
+
+  initIDB(function() { loadData(); });
+  initPullToRefresh();
+};
+
+/**
+ * Pull-to-Refresh 초기화
+ */
+function initPullToRefresh() {
+  var startY = 0, isPulling = false;
+  var threshold = 80;
+  var indicator = document.getElementById('ptr-indicator');
+
+  document.addEventListener('touchstart', function(e) {
+    startY    = e.touches[0].clientY;
+    isPulling = window.scrollY === 0;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!isPulling) return;
+    var dist = e.touches[0].clientY - startY;
+    if (dist > 20) {
+      indicator.classList.add('visible');
+      indicator.innerText = dist > threshold ? '🔄 놓으면 새로고침' : '↓ 아래로 당기세요';
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', function(e) {
+    if (!isPulling) return;
+    var dist = e.changedTouches[0].clientY - startY;
+    indicator.classList.remove('visible');
+    isPulling = false;
+    if (dist > threshold) {
+      indicator.classList.add('visible');
+      indicator.innerText = '새로고침 중...';
+      refreshRecordsBackground(function() { indicator.classList.remove('visible'); });
+    }
+  });
+}
+
+/**
+ * 서버에서 초기 데이터 로드
+ */
+function loadData() {
+  showLoading('데이터 동기화 중...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) { alert('서버 오류: ' + res.message); showLoginScreen(); return; }
+      state.settings    = res.settings;
+      state.logs        = res.logs;
+      state.records     = res.records;
+      state.serverToday = res.serverToday;
+      renderBaseUI();
+      checkSession();
+    })
+    .withFailureHandler(function() {
+      alert('데이터 로드 실패!');
+      hideLoading();
+    })
+    .getInitialData();
+}
+
+/**
+ * 백그라운드에서 records만 갱신
+ */
+function refreshRecordsBackground(cb) {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { state.records = res.records; renderLists(); }
+      if (cb) cb();
+    })
+    .getInitialData();
+}
+
+// ── 로딩/토스트 UI ──────────────────────────────────────
+function hideLoading() {
+  document.getElementById('loading-overlay').style.display = 'none';
+  document.getElementById('app').classList.remove('hidden');
+}
+
+function showLoading(msg) {
+  document.getElementById('loading-overlay').style.display = 'flex';
+  document.getElementById('loading-msg').innerText = msg || '처리 중...';
+}
+
+function showToast(msg, type) {
+  var t = document.createElement('div');
+  t.className = 'toast ' + (type || 'info');
+  t.innerText = msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(function() {
+    t.style.opacity    = '0';
+    t.style.transition = 'opacity 0.5s';
+    setTimeout(function() { t.remove(); }, 500);
+  }, 3000);
+}
+
+function showCardLoading(recordId) {
+  var wrap = document.getElementById('card-wrap-' + recordId);
+  if (!wrap) return;
+  var ov = document.createElement('div');
+  ov.className = 'done-card-overlay';
+  ov.id        = 'card-overlay-' + recordId;
+  ov.innerHTML = '<div class="spinner"></div>';
+  wrap.appendChild(ov);
+}
+
+function hideCardLoading(recordId) {
+  var ov = document.getElementById('card-overlay-' + recordId);
+  if (ov) ov.remove();
+}
+
+// ── 세션 / 로그인 ──────────────────────────────────────
+function checkSession() {
+  var saved = sessionStorage.getItem('haccp_user');
+  if (saved) { loginSuccess(JSON.parse(saved)); }
+  else { hideLoading(); showLoginScreen(); }
+}
+
+function showLoginScreen() {
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('main-screen').classList.add('hidden');
+  document.getElementById('form-screen').classList.add('hidden');
+}
+
+function handleLogout() {
+  sessionStorage.clear();
+  state.user = null;
+  document.getElementById('user-pw').value = '';
+  showLoginScreen();
+  hideLoading();
+}
+
+function handleLogin() {
+  var id = document.getElementById('user-id').value.trim();
+  var pw = document.getElementById('user-pw').value;
+  if (!id || !pw) return;
+  showLoading('사용자 인증 중...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) {
+        res.userInfo.mustChangePw = res.mustChangePw;
+        sessionStorage.setItem('haccp_user', JSON.stringify(res.userInfo));
+        loginSuccess(res.userInfo);
+      } else {
+        hideLoading();
+        alert(res.message);
+      }
+    })
+    .withFailureHandler(function() { hideLoading(); alert('통신 오류!'); })
+    .login(id, pw);
+}
+
+function loginKeydown(e) { if (e.key === 'Enter') handleLogin(); }
+
+function loginSuccess(user) {
+  state.user = user;
+  hideLoading();
+
+  if (parseInt(user.role) >= 3) {
+    document.getElementById('admin-post-btn').classList.remove('hidden');
+  }
+
+  if (user.mustChangePw) { forceChangePassword(); return; }
+  if (!user.signature)   { forceSignature();       return; }
+
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('form-screen').classList.add('hidden');
+  document.getElementById('main-screen').classList.remove('hidden');
+  document.getElementById('display-user').innerText = user.name;
+
+  if (state.noticeHidden) document.getElementById('notice-box').style.display = 'none';
+  renderLists();
+}
+
+function toggleNotice() {
+  document.getElementById('notice-box').style.display = 'none';
+  state.noticeHidden = true;
+}
+
+// ── 공통 UI 렌더링 (로고/회사명) ───────────────────────
+function renderBaseUI() {
+  var compName = state.settings.CompanyName || 'HACCP 스마트 공장';
+  document.getElementById('factory-name-login').innerText = compName;
+  document.getElementById('footer-company').innerText     = compName;
+
+  ['logo-container-login', 'logo-container-main'].forEach(function(id) {
+    var c = document.getElementById(id);
+    if (!c) return;
+    c.innerHTML = state.settings.Logo
+      ? '<img src="' + state.settings.Logo + '" class="logo-img">'
+      : '<span>🏢 ' + compName + '</span>';
+  });
+}
+
+// ── 탭 전환 ────────────────────────────────────────────
+function switchTab(t) {
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.querySelectorAll('.list-section').forEach(function(s) { s.classList.add('hidden'); });
+  document.getElementById('tab-' + t).classList.add('active');
+  document.getElementById(t + '-section').classList.remove('hidden');
+}
+
+function filterDoneList(filterType, btnElem) {
+  document.querySelectorAll('.sub-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+  btnElem.classList.add('active');
+  state.currentFilter = filterType;
+  renderDoneList();
+}
+</script>

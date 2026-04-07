@@ -1,0 +1,224 @@
+<script>
+// ════════════════════════════════════════════════════════
+//  js_photo.html — 사진 업로드 / 이미지 편집
+// ════════════════════════════════════════════════════════
+
+// 이미지 편집 캔버스 전역 참조
+var editCanvas, editCtx;
+
+// ── 사진 업로드 공통 ───────────────────────────────────
+/**
+ * 파일 input 클릭 트리거
+ * @param {'defect'|'action'} type
+ * @param {string} key    - 항목 키 (예: 'floor', 'fb_global')
+ * @param {'camera'|'gallery'} mode
+ */
+function triggerPhoto(type, key, mode) {
+  var el = document.getElementById('photo-input-' + type + '-' + mode + '-' + key);
+  if (el) el.click();
+}
+
+/**
+ * 파일 선택 후 리사이즈 → 드라이브 업로드 → 썸네일 표시
+ * @param {'defect'|'action'} type
+ * @param {string} key
+ * @param {HTMLInputElement} input
+ * @param {string} customLabel - 파일명에 사용할 항목명
+ */
+function handlePhoto(type, key, input, customLabel) {
+  if (!input.files || !input.files[0]) return;
+
+  var previewEl = document.getElementById(type + '-photo-preview-' + key);
+  if (previewEl) {
+    previewEl.innerHTML =
+      '<div style="width:70px;height:70px;display:flex;align-items:center;justify-content:center;border:1px solid #ddd;border-radius:8px;">' +
+      '<div class="card-spinner"></div></div>';
+  }
+
+  var file   = input.files[0];
+  var reader = new FileReader();
+
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      // 최대 1280px 리사이즈
+      var maxSide = 1280, w = img.width, h = img.height;
+      if (w > maxSide || h > maxSide) {
+        if (w > h) { h = Math.round(h * maxSide / w); w = maxSide; }
+        else       { w = Math.round(w * maxSide / h); h = maxSide; }
+      }
+      var c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      var base64     = c.toDataURL('image/jpeg', 0.75);
+      var itemLabel  = customLabel || key;
+
+      // 오프라인 시 Base64 그대로 임시 저장
+      if (!navigator.onLine) {
+        _setPhotoState(type, key, base64);
+        if (previewEl) previewEl.innerHTML = getPhotoHtml(type, key);
+        showToast('오프라인: 사진 임시 저장됨', 'info');
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res.success) {
+            _setPhotoState(type, key, res.url);
+            if (previewEl) previewEl.innerHTML = getPhotoHtml(type, key);
+            showToast('사진 저장 완료 ✔', 'success');
+          } else {
+            if (previewEl) previewEl.innerHTML = '<span style="color:red;font-size:11px;">업로드 실패</span>';
+            showToast('사진 업로드 실패: ' + res.message, 'error');
+          }
+        })
+        .withFailureHandler(function() {
+          if (previewEl) previewEl.innerHTML = '<span style="color:red;font-size:11px;">업로드 오류</span>';
+          showToast('사진 업로드 오류', 'error');
+        })
+        .savePhoto(currentRecordId, currentLogInfo.logId, currentLogInfo.logTitle, itemLabel, type, base64);
+    };
+    img.src = e.target.result;
+  };
+
+  reader.readAsDataURL(file);
+  input.value = ''; // 같은 파일 재선택 허용
+}
+
+/**
+ * formState에 사진 URL 저장
+ */
+function _setPhotoState(type, key, url) {
+  if (type === 'defect') formState.defectPhotos[key] = url;
+  else                   formState.actionPhotos[key]  = url;
+}
+
+/**
+ * 썸네일 img 태그 반환 (없으면 빈 문자열)
+ */
+function getPhotoHtml(type, key) {
+  var src = type === 'defect' ? formState.defectPhotos[key] : formState.actionPhotos[key];
+  return src
+    ? '<img src="' + src + '" class="photo-thumb" onclick="openImgEdit(\'' + type + '\',\'' + key + '\')" onerror="this.style.opacity=0.3">'
+    : '';
+}
+
+// ── 이미지 편집 모달 ───────────────────────────────────
+function openImgEdit(type, key) {
+  var src = type === 'defect' ? formState.defectPhotos[key] : formState.actionPhotos[key];
+  if (!src) return;
+  if (src.startsWith('http')) {
+    showToast('서버에 저장된 사진은 편집할 수 없습니다.', 'info');
+    return;
+  }
+
+  editState.targetKey  = key;
+  editState.targetType = type;
+  editState.shapes     = [];
+  editState.baseImg    = null;
+
+  document.getElementById('img-edit-modal').classList.remove('hidden');
+  editCanvas = document.getElementById('edit-canvas');
+  editCtx    = editCanvas.getContext('2d');
+
+  var img = new Image();
+  img.onload = function() {
+    var maxW  = editCanvas.parentElement.offsetWidth - 30;
+    var scale = Math.min(1, maxW / img.width);
+    editCanvas.width  = img.width  * scale;
+    editCanvas.height = img.height * scale;
+    editState.baseImg = img;
+    redrawEdit();
+    bindEditEvents();
+  };
+  img.src = src;
+}
+
+function bindEditEvents() {
+  editCanvas.onmousedown = editCanvas.ontouchstart = function(e) {
+    e.preventDefault();
+    var p = getEditPos(e);
+    editState.drawing = true;
+    editState.startX  = p.x;
+    editState.startY  = p.y;
+  };
+  editCanvas.onmousemove = editCanvas.ontouchmove = function(e) {
+    e.preventDefault();
+    if (!editState.drawing) return;
+    var p = getEditPos(e);
+    redrawEdit();
+    drawShape(editCtx, editState.tool, editState.startX, editState.startY, p.x, p.y, editState.color);
+  };
+  editCanvas.onmouseup = editCanvas.ontouchend = function(e) {
+    if (!editState.drawing) return;
+    editState.drawing = false;
+    var p = getEditPos(e.changedTouches ? e.changedTouches[0] : e);
+    editState.shapes.push({
+      tool: editState.tool, x1: editState.startX, y1: editState.startY,
+      x2: p.x, y2: p.y, color: editState.color
+    });
+    redrawEdit();
+  };
+}
+
+function getEditPos(e) {
+  var rect = editCanvas.getBoundingClientRect();
+  var cx   = e.touches ? e.touches[0].clientX : e.clientX;
+  var cy   = e.touches ? e.touches[0].clientY : e.clientY;
+  return {
+    x: (cx - rect.left) * (editCanvas.width  / rect.width),
+    y: (cy - rect.top)  * (editCanvas.height / rect.height)
+  };
+}
+
+function redrawEdit() {
+  editCtx.clearRect(0, 0, editCanvas.width, editCanvas.height);
+  editCtx.drawImage(editState.baseImg, 0, 0, editCanvas.width, editCanvas.height);
+  editState.shapes.forEach(function(s) {
+    drawShape(editCtx, s.tool, s.x1, s.y1, s.x2, s.y2, s.color);
+  });
+}
+
+function drawShape(ctx, tool, x1, y1, x2, y2, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 3;
+  ctx.beginPath();
+
+  if (tool === 'circle') {
+    var rx = Math.abs(x2 - x1) / 2, ry = Math.abs(y2 - y1) / 2;
+    var cx = (x1 + x2) / 2,         cy = (y1 + y2) / 2;
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+    ctx.stroke();
+  } else if (tool === 'line') {
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  } else if (tool === 'arrow') {
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    var a = Math.atan2(y2 - y1, x2 - x1), l = 14;
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - l * Math.cos(a - 0.4), y2 - l * Math.sin(a - 0.4));
+    ctx.lineTo(x2 - l * Math.cos(a + 0.4), y2 - l * Math.sin(a + 0.4));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+}
+
+function setEditTool(tool) {
+  editState.tool = tool;
+  document.querySelectorAll('.edit-tool-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.getElementById('tool-' + tool).classList.add('active');
+}
+
+function undoEdit()        { editState.shapes.pop(); redrawEdit(); }
+function clearEditCanvas() { editState.shapes = []; redrawEdit(); }
+function closeImgEdit()    { document.getElementById('img-edit-modal').classList.add('hidden'); }
+
+function confirmEdit() {
+  var result = editCanvas.toDataURL('image/jpeg', 0.85);
+  _setPhotoState(editState.targetType, editState.targetKey, result);
+  document.getElementById(editState.targetType + '-photo-preview-' + editState.targetKey)
+    .innerHTML = getPhotoHtml(editState.targetType, editState.targetKey);
+  closeImgEdit();
+}
+</script>
