@@ -17,6 +17,7 @@ var state = {
   settings:      {},
   logs:          [],
   records:       [],
+  userMeta:      {}, // [v3.0 추가] 서명 및 직책 데이터
   currentFilter: 'all',
   selectMode:    false,
   revokeMode:    false,
@@ -138,7 +139,6 @@ window.addEventListener('offline', function() { showToast('오프라인 상태�
 
 // ── 앱 초기화 ──────────────────────────────────────────
 window.onload = function() {
-  // 기본 P01 양식 HTML 캐시 (form-scroll-area 초기 내용)
   var formArea = document.getElementById('form-scroll-area');
   if (formArea) genericFormHtml = formArea.innerHTML;
 
@@ -193,6 +193,7 @@ function loadData() {
       state.logs        = res.logs;
       state.records     = res.records;
       state.serverToday = res.serverToday;
+      state.userMeta    = res.userMeta || {}; // 직책, 서명 데이터 로드
       renderBaseUI();
       checkSession();
     })
@@ -310,7 +311,10 @@ function loginSuccess(user) {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('form-screen').classList.add('hidden');
   document.getElementById('main-screen').classList.remove('hidden');
-  document.getElementById('display-user').innerText = user.name;
+  
+  // [v3.0 수정] 직책 이름 표시
+  var displayRank = user.rank || '담당';
+  document.getElementById('display-user').innerText = displayRank + ' ' + user.name;
 
   if (state.noticeHidden) document.getElementById('notice-box').style.display = 'none';
   renderLists();

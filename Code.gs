@@ -37,7 +37,22 @@ function getInitialData() {
     const logs     = getSafeData('Logs');
     const todayStr = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
     const records  = getAllPendingRecords();
-    return { success: true, settings, logs, records, serverToday: todayStr };
+
+    // [v3.0 수정] 사용자 이름별 [서명, 직책] 매핑 데이터 생성 (비밀번호 배제)
+    const userSheet = SS.getSheetByName('Users');
+    const userData  = userSheet ? userSheet.getDataRange().getValues() : [];
+    const userMeta = {}; // { "관리자": { sig: "...", rank: "팀장" } }
+    
+    for (let i = 1; i < userData.length; i++) {
+      const name = userData[i][2]; // Name 컬럼
+      const sig  = userData[i][4]; // Signature 컬럼
+      const rank = userData[i][5] || '담당'; // Rank 컬럼 (F열)
+      if (name) {
+        userMeta[name] = { sig: sig, rank: rank };
+      }
+    }
+
+    return { success: true, settings, logs, records, serverToday: todayStr, userMeta: userMeta };
   } catch (e) {
     return { success: false, message: e.toString() };
   }
@@ -73,7 +88,7 @@ function getSafeData(name) {
 }
 
 /**
- * 오늘 날짜 또는 미완료 레코드 전체 반환
+ * 오늘 날짜 또는 미완료 레코드 전체 반환 (신규 날짜 컬럼 포함)
  */
 function getAllPendingRecords() {
   const sheet = SS.getSheetByName('MasterRecords');
@@ -83,21 +98,22 @@ function getAllPendingRecords() {
   return sheet.getDataRange().getValues().slice(1)
     .filter(r => r[0])
     .map(r => {
-      let rowDate = r[3] instanceof Date
-        ? Utilities.formatDate(r[3], 'GMT+9', 'yyyy-MM-dd')
-        : String(r[3]);
+      const formatDate = (val) => (val instanceof Date) ? Utilities.formatDate(val, 'GMT+9', 'yyyy-MM-dd') : String(val || '');
       return {
         recordId:   String(r[0]),
         logId:      String(r[1]),
         title:      String(r[2]),
-        date:       rowDate,
+        date:       formatDate(r[3]),
         writerId:   String(r[4]),
         writerName: String(r[5]),
         reviewer:   String(r[6]),
         approver:   String(r[7]),
         status:     String(r[8]),
         pdfLink:    String(r[9]  || ''),
-        defectInfo: String(r[10] || '')
+        defectInfo: String(r[10] || ''),
+        writeDate:  formatDate(r[11]), // L열
+        reviewDate: formatDate(r[12]), // M열
+        approveDate:formatDate(r[13])  // N열
       };
     })
     .filter(rec => rec.date === todayStr || rec.status !== '승인완료');
@@ -129,7 +145,7 @@ function generateTestRecords() {
   const logSheet = SS.getSheetByName('Log_P01')       || SS.insertSheet('Log_P01');
 
   master.clear();
-  master.appendRow(['RecordID','LogID','Title','Date','WriterID','WriterName','Reviewer','Approver','Status','PDFLink','DefectInfo']);
+  master.appendRow(['RecordID','LogID','Title','Date','WriterID','WriterName','Reviewer','Approver','Status','PDFLink','DefectInfo','WriteDate','ReviewDate','ApproveDate']);
   logSheet.clear();
   logSheet.appendRow(['RecordID','Date','Writer','DataJson']);
 
@@ -154,7 +170,7 @@ function generateTestRecords() {
     { id:'REC-TEST-4', status:'검토완료', rev:'관리자', app:'',         defect:'',        data:sampleData },
     { id:'REC-TEST-5', status:'승인완료', rev:'관리자', app:'최고관리자', defect:'',        data:sampleData }
   ].forEach(t => {
-    master.appendRow([t.id,'P01','위생 점검(테스트)',today,'admin','관리자',t.rev,t.app,t.status,'',t.defect]);
+    master.appendRow([t.id,'P01','위생 점검(테스트)',today,'admin','관리자',t.rev,t.app,t.status,'',t.defect,today,t.rev?today:'',t.app?today:'']);
     logSheet.appendRow([t.id, today, '관리자', t.data]);
   });
 

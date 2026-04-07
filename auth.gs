@@ -15,21 +15,22 @@ function login(id, pw) {
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] !== id) continue;
 
+    // [v3.0 수정] 직책(Rank, F열 인덱스 5) 가져오기
+    const userInfo = { 
+      id: id, 
+      name: data[i][2], 
+      role: String(data[i][3]), 
+      signature: data[i][4],
+      rank: data[i][5] || '담당' 
+    };
+
     // 비밀번호 미설정 + 초기값(0000) 입력 → 비밀번호 변경 강제
     if (data[i][1] === '' && pw === '0000') {
-      return {
-        success: true,
-        mustChangePw: true,
-        userInfo: { id, name: data[i][2], role: String(data[i][3]), signature: data[i][4] }
-      };
+      return { success: true, mustChangePw: true, userInfo: userInfo };
     }
 
     if (data[i][1] === hashedInput) {
-      return {
-        success: true,
-        mustChangePw: false,
-        userInfo: { id, name: data[i][2], role: String(data[i][3]), signature: data[i][4] }
-      };
+      return { success: true, mustChangePw: false, userInfo: userInfo };
     }
   }
 

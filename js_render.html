@@ -41,7 +41,7 @@ function renderTodoList() {
 
     var header = document.createElement('div');
     header.className = 'interval-header ' + group.cls;
-    header.innerText = group.label; // ④ 건수 제거
+    header.innerText = group.label;
     section.appendChild(header);
 
     logsInGroup.forEach(function(log) {
@@ -87,9 +87,6 @@ function renderTodoList() {
   document.getElementById('todo-count').innerText = totalCount;
 }
 
-/**
- * 새 일지 레코드 생성 후 폼 열기
- */
 function startNewLog(logId, title, cardElem) {
   cardElem.onclick = null;
   showLoading('일지 생성 중...');
@@ -101,7 +98,7 @@ function startNewLog(logId, title, cardElem) {
           recordId: res.recordId, logId: logId, title: title,
           date: state.serverToday, writerId: state.user.id,
           writerName: state.user.name, reviewer: '', approver: '',
-          status: '작성중', pdfLink: '', defectInfo: ''
+          status: '작성중', pdfLink: '', defectInfo: '', writeDate: state.serverToday
         });
         openForm(res.recordId, logId, title, state.serverToday);
       } else {
@@ -122,9 +119,6 @@ function startNewLog(logId, title, cardElem) {
     .createNewLog(logId, title, state.user.id, state.user.name, state.serverToday);
 }
 
-/**
- * 작성 취소 (작성중 → 삭제)
- */
 function cancelRecord(recordId, title) {
   if (!confirm('[' + title + '] 작성을 취소하시겠습니까?')) return;
   showLoading('처리 중...');
@@ -155,29 +149,28 @@ function renderDoneList() {
 
   if (!recs.length) {
     list.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">해당하는 일지가 없습니다.</p>';
-    document.getElementById('done-count').innerText =
-      state.records.filter(function(r) { return r.status !== '작성중'; }).length;
+    document.getElementById('done-count').innerText = state.records.filter(function(r) { return r.status !== '작성중'; }).length;
     return;
   }
 
-  var dates = Array.from(new Set(recs.map(function(r) { return r.date; }))).sort().reverse();
-  dates.forEach(function(date) {
-    var hdr = document.createElement('div');
-    hdr.className = 'date-divider';
-    hdr.innerHTML = '📅 ' + date + (date === state.serverToday ? ' (오늘)' : '');
-    list.appendChild(hdr);
+  // [v3.0 수정] 정렬 로직 고도화: 1. 부적합 2. 결재상태(작성>검토>승인) 3. 최신순
+  recs.sort(function(a, b) {
+    var aHasDefect = (a.defectInfo && a.defectInfo !== '{}' && a.defectInfo !== '') ? 1 : 0;
+    var bHasDefect = (b.defectInfo && b.defectInfo !== '{}' && b.defectInfo !== '') ? 1 : 0;
+    if (aHasDefect !== bHasDefect) return bHasDefect - aHasDefect;
 
-    recs.filter(function(r) { return r.date === date; })
-      .sort(function(a, b) {
-        if (a.defectInfo && !b.defectInfo) return -1;
-        if (!a.defectInfo && b.defectInfo) return  1;
-        return b.recordId.localeCompare(a.recordId);
-      })
-      .forEach(function(rec) { list.appendChild(buildDoneCard(rec)); });
+    var statusMap = { '작성완료': 3, '검토완료': 2, '승인완료': 1 };
+    if (statusMap[a.status] !== statusMap[b.status]) return statusMap[b.status] - statusMap[a.status];
+
+    return b.recordId.localeCompare(a.recordId);
   });
 
-  document.getElementById('done-count').innerText =
-    state.records.filter(function(r) { return r.status !== '작성중'; }).length;
+  var dates = Array.from(new Set(recs.map(function(r) { return r.date; })));
+  
+  // 날짜 구분선 제거하고 그냥 순서대로 출력 (우선순위가 날짜보다 중요하므로)
+  recs.forEach(function(rec) { list.appendChild(buildDoneCard(rec)); });
+
+  document.getElementById('done-count').innerText = state.records.filter(function(r) { return r.status !== '작성중'; }).length;
 }
 
 /**
@@ -213,15 +206,21 @@ function buildDoneCard(rec) {
 
   var btns = '';
   if (!state.selectMode) {
-    if (role >= 2 && rec.status === '작성완료')
+    // [v3.0 수정] 자기 검토 차단: 작성자가 본인이 아닐 때만 검토 버튼 활성화
+    var isMyRecord = (rec.writerId === state.user.id);
+
+    if (role >= 2 && !isMyRecord && rec.status === '작성완료')
       btns += '<button class="action-btn btn-review" onclick="doAction(\'' + rec.recordId + '\',\'REVIEW\',\'' + rec.title + '\')">검토</button>';
-    if (role >= 2 && rec.status === '검토완료')
+    if (role >= 2 && !isMyRecord && rec.status === '검토완료')
       btns += '<button class="btn-ghost btn-ghost-review" onclick="doAction(\'' + rec.recordId + '\',\'CANCEL_REVIEW\',\'' + rec.title + '\')">검토취소</button>';
+    
+    // 승인은 권한 3이면 작성자 본인이어도 가능
     if (role >= 3 && (rec.status === '검토완료' || rec.status === '작성완료'))
       btns += '<button class="action-btn btn-approve" onclick="doAction(\'' + rec.recordId + '\',\'APPROVE\',\'' + rec.title + '\')">승인</button>';
     if (role >= 3 && rec.status === '승인완료')
       btns += '<button class="btn-ghost btn-ghost-approve" onclick="doAction(\'' + rec.recordId + '\',\'REVOKE\',\'' + rec.title + '\')">승인취소</button>';
-    if (rec.status === '작성완료' && rec.writerId === state.user.id)
+    
+    if (rec.status === '작성완료' && isMyRecord)
       btns += '<button class="btn-ghost btn-ghost-danger" onclick="doAction(\'' + rec.recordId + '\',\'CANCEL\',\'' + rec.title + '\')">작성취소</button>';
   }
 
@@ -236,7 +235,7 @@ function buildDoneCard(rec) {
       '<div class="done-card-clickable" onclick="viewRecord(\'' + rec.recordId + '\',\'' + rec.logId + '\',\'' + rec.title + '\')">' +
         '<span class="status-badge" style="background:' + badgeColor + '">' + rec.status + '</span>' +
         '<h4 style="margin:5px 0;font-size:14px;">' + rec.title + '</h4>' +
-        '<div style="font-size:11px;color:#888;">작성: ' + rec.writerName +
+        '<div style="font-size:11px;color:#888;">점검일: ' + rec.date + ' | 작성: ' + rec.writerName +
           (rec.reviewer  ? ' · 검토: ' + rec.reviewer  : '') +
           (rec.approver  ? ' · 승인: ' + rec.approver  : '') +
         '</div>' +
@@ -272,16 +271,24 @@ function doAction(recordId, action, title) {
         if (action === 'CANCEL') {
           state.records = state.records.filter(function(x) { return x.recordId !== recordId; });
         } else {
+          // [v3.0 수정] 로컬 상태 갱신 시 날짜(date)값도 가상으로 갱신해줌 (새로고침 시 서버시간으로 정확히 받아옴)
+          var now = state.serverToday; 
           state.records.forEach(function(r) {
             if (r.recordId !== recordId) return;
-            if (action === 'CANCEL_REVIEW') { r.status = '작성완료'; r.reviewer = ''; }
-            if (action === 'REVIEW')        { r.status = '검토완료'; r.reviewer = state.user.name; }
-            if (action === 'APPROVE')       { r.status = '승인완료'; r.approver = state.user.name; }
-            if (action === 'REVOKE')        { r.status = '검토완료'; r.approver = ''; }
+            if (action === 'CANCEL_REVIEW') { r.status = '작성완료'; r.reviewer = ''; r.reviewDate = ''; }
+            if (action === 'REVIEW')        { r.status = '검토완료'; r.reviewer = state.user.name; r.reviewDate = now; }
+            if (action === 'APPROVE')       { r.status = '승인완료'; r.approver = state.user.name; r.approveDate = now; }
+            if (action === 'REVOKE')        { r.status = '검토완료'; r.approver = ''; r.approveDate = ''; }
           });
         }
         renderLists();
         showToast('처리 완료!', 'success');
+        
+        // 상세 뷰가 열려있다면 즉시 갱신
+        if (!document.getElementById('view-screen').classList.contains('hidden')) {
+          var target = state.records.find(function(x) { return x.recordId === recordId; });
+          if (target) viewRecord(target.recordId, target.logId, target.title);
+        }
       } else {
         alert(res.message);
       }

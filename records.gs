@@ -7,8 +7,9 @@ function createNewLog(logId, title, writerId, writerName, targetDate) {
   const master  = SS.getSheetByName('MasterRecords') || SS.insertSheet('MasterRecords');
   const dateStr = targetDate || Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
   const recordId = 'REC-' + new Date().getTime();
-
-  master.appendRow([recordId, logId, title, dateStr, writerId, writerName, '', '', '작성중', '', '']);
+  
+  // [v3.0 수정] 신규 날짜 컬럼 3개 자리 확보 (L, M, N열)
+  master.appendRow([recordId, logId, title, dateStr, writerId, writerName, '', '', '작성중', '', '', dateStr, '', '']);
 
   const detailSheet = SS.getSheetByName('Log_' + logId) || SS.insertSheet('Log_' + logId);
   if (detailSheet.getLastRow() === 0) {
@@ -37,14 +38,15 @@ function saveDraft(recordId, logId, dataJson) {
 function saveFormData(recordId, logId, dataJson, defectInfo) {
   try {
     _updateDetailJson(logId, recordId, dataJson);
-
     const master = SS.getSheetByName('MasterRecords');
     if (master) {
       const data = master.getDataRange().getValues();
+      const now = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
       for (let i = 1; i < data.length; i++) {
         if (String(data[i][0]) === recordId) {
           master.getRange(i + 1, 9).setValue('작성완료');
           master.getRange(i + 1, 11).setValue(defectInfo);
+          master.getRange(i + 1, 12).setValue(now); // WriteDate 기록
           break;
         }
       }
@@ -52,7 +54,6 @@ function saveFormData(recordId, logId, dataJson, defectInfo) {
 
     // 빈 양식 PDF 템플릿 자동 생성 (최초 제출 시)
     checkAndGenerateTemplate(logId);
-
     return { success: true };
   } catch (e) {
     return { success: false, message: e.toString() };
@@ -85,44 +86,50 @@ function getRecordDetail(recordId, logId) {
 function processRecordAction(recordId, action, userId, userName, userRole) {
   const sheet = SS.getSheetByName('MasterRecords');
   const data  = sheet.getDataRange().getValues();
+  const now   = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
 
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) !== recordId) continue;
-
     const status   = String(data[i][8]);
     const writerId = String(data[i][4]);
     const role     = parseInt(userRole);
-
+    
     switch (action) {
       case 'CANCEL':
         if (writerId !== userId)      return { success: false, message: '본인 작성 문서만 취소할 수 있습니다.' };
         if (status !== '작성완료')    return { success: false, message: '작성완료 상태에서만 취소 가능합니다.' };
         sheet.getRange(i + 1, 7, 1, 3).setValues([['', '', '작성중']]);
+        sheet.getRange(i + 1, 12, 1, 3).setValues([['', '', '']]); // 모든 날짜 초기화
         return { success: true };
-
+        
       case 'CANCEL_REVIEW':
         if (role < 2)              return { success: false, message: '검토 권한이 없습니다.' };
         if (status !== '검토완료') return { success: false, message: '검토완료 상태에서만 취소 가능합니다.' };
         sheet.getRange(i + 1, 7).setValue('');
         sheet.getRange(i + 1, 9).setValue('작성완료');
+        sheet.getRange(i + 1, 13).setValue(''); // ReviewDate 초기화
         return { success: true };
 
       case 'REVIEW':
         if (role < 2) return { success: false, message: '검토 권한이 없습니다.' };
+        if (writerId === userId) return { success: false, message: '본인 작성 문서는 검토할 수 없습니다.' };
         sheet.getRange(i + 1, 7).setValue(userName);
         sheet.getRange(i + 1, 9).setValue('검토완료');
+        sheet.getRange(i + 1, 13).setValue(now); // ReviewDate 기록
         return { success: true };
-
+        
       case 'APPROVE':
         if (role < 3) return { success: false, message: '승인 권한이 없습니다.' };
         sheet.getRange(i + 1, 8).setValue(userName);
         sheet.getRange(i + 1, 9).setValue('승인완료');
+        sheet.getRange(i + 1, 14).setValue(now); // ApproveDate 기록
         return { success: true };
-
+        
       case 'REVOKE':
         if (role < 3) return { success: false, message: '승인취소 권한이 없습니다.' };
         sheet.getRange(i + 1, 8).setValue('');
         sheet.getRange(i + 1, 9).setValue('검토완료');
+        sheet.getRange(i + 1, 14).setValue(''); // ApproveDate 초기화
         return { success: true };
     }
   }
@@ -137,16 +144,19 @@ function batchActionByIds(ids, action, userName, userRole) {
   const sheet = SS.getSheetByName('MasterRecords');
   const data  = sheet.getDataRange().getValues();
   const role  = parseInt(userRole);
-
+  const now   = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
+  
   for (let i = 1; i < data.length; i++) {
     if (!ids.includes(String(data[i][0]))) continue;
     if (action === 'APPROVE') {
       sheet.getRange(i + 1, 8).setValue(userName);
       sheet.getRange(i + 1, 9).setValue('승인완료');
+      sheet.getRange(i + 1, 14).setValue(now);
     }
     if (action === 'REVOKE' && role >= 3) {
       sheet.getRange(i + 1, 8).setValue('');
       sheet.getRange(i + 1, 9).setValue('검토완료');
+      sheet.getRange(i + 1, 14).setValue('');
     }
   }
   return { success: true };
@@ -160,16 +170,15 @@ function batchWriteAllRecords(userId, userName) {
   const todayStr = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
   const doneIds  = getTodayMasterRecords(todayStr).map(r => r.logId);
   const master   = SS.getSheetByName('MasterRecords');
-
+  
   logs.forEach(log => {
     if (doneIds.includes(log.id)) return;
     const recordId = 'REC-' + new Date().getTime() + Math.floor(Math.random() * 1000);
-    master.appendRow([recordId, log.id, log.title, todayStr, userId, userName, '', '', '작성완료', '', '']);
+    master.appendRow([recordId, log.id, log.title, todayStr, userId, userName, '', '', '작성완료', '', '', todayStr, '', '']);
     const ds = SS.getSheetByName('Log_' + log.id) || SS.insertSheet('Log_' + log.id);
     if (ds.getLastRow() === 0) ds.appendRow(['RecordID', 'Date', 'Writer', 'DataJson']);
     ds.appendRow([recordId, todayStr, userName, JSON.stringify({ autoFilled: true })]);
   });
-
   return { success: true };
 }
 
@@ -180,24 +189,25 @@ function batchProcessRecords(action, userName, userRole) {
   const role = parseInt(userRole);
   if (action === 'REVIEW'  && role < 2) return { success: false, message: '검토 권한이 없습니다.' };
   if (action === 'APPROVE' && role < 3) return { success: false, message: '승인 권한이 없습니다.' };
-
+  
   const sheet    = SS.getSheetByName('MasterRecords');
   const data     = sheet.getDataRange().getValues();
   const todayStr = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
+  const now      = todayStr;
 
   for (let i = 1; i < data.length; i++) {
-    const rowDate = data[i][3] instanceof Date
-      ? Utilities.formatDate(data[i][3], 'GMT+9', 'yyyy-MM-dd')
-      : String(data[i][3]);
+    const rowDate = data[i][3] instanceof Date ? Utilities.formatDate(data[i][3], 'GMT+9', 'yyyy-MM-dd') : String(data[i][3]);
     if (rowDate !== todayStr) continue;
-
+    
     if (action === 'REVIEW'  && data[i][8] === '작성완료') {
       sheet.getRange(i + 1, 7).setValue(userName);
       sheet.getRange(i + 1, 9).setValue('검토완료');
+      sheet.getRange(i + 1, 13).setValue(now);
     }
     if (action === 'APPROVE' && (data[i][8] === '검토완료' || data[i][8] === '작성완료')) {
       sheet.getRange(i + 1, 8).setValue(userName);
       sheet.getRange(i + 1, 9).setValue('승인완료');
+      sheet.getRange(i + 1, 14).setValue(now);
     }
   }
   return { success: true };
@@ -205,9 +215,6 @@ function batchProcessRecords(action, userName, userRole) {
 
 // ── 내부 헬퍼 ──────────────────────────────────────────
 
-/**
- * Log_[logId] 시트에서 recordId 행의 DataJson 컬럼 업데이트
- */
 function _updateDetailJson(logId, recordId, dataJson) {
   const sheet = SS.getSheetByName('Log_' + logId);
   if (!sheet) return;
@@ -220,9 +227,6 @@ function _updateDetailJson(logId, recordId, dataJson) {
   }
 }
 
-/**
- * 빈 양식 PDF 자동 생성 (버전별 1회만)
- */
 function checkAndGenerateTemplate(logId) {
   const logs    = getSafeData('Logs');
   const logMeta = logs.find(l => l.id === logId);
@@ -231,7 +235,6 @@ function checkAndGenerateTemplate(logId) {
   const folderName = 'HACCP_양식';
   const folders    = DriveApp.getFoldersByName(folderName);
   const folder     = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
-
   const fileName = `${logMeta.docNo}_빈양식_${logMeta.version}.pdf`;
   if (folder.getFilesByName(fileName).hasNext()) return; // 이미 존재하면 스킵
 
