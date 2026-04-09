@@ -1,357 +1,371 @@
 <script>
 // ════════════════════════════════════════════════════════
-//  js_core.html — 전역 상태 / IndexedDB / 초기화 / 인증
+//  js_form.html — 폼 라우팅 / 수집·검증 / 제출 / 뷰어
 // ════════════════════════════════════════════════════════
 
-// ── 전역 에러 핸들러 ──────────────────────────────────────
-window.onerror = function(msg, url, line) {
-  document.body.innerHTML =
-    '<div style="padding:20px;color:red;font-weight:bold;text-align:center;">' +
-    '<h3>시스템 오류 발생</h3><p>' + msg + ' (Line:' + line + ')</p>' +
-    '<button onclick="location.reload()" style="padding:10px;margin-top:20px;">새로고침</button></div>';
-};
+function openForm(recordId, logId, title, date) {
+  currentRecordId = recordId;
+  currentLogInfo  = { logId: logId, logTitle: title };
 
-// ── 전역 상태 ──────────────────────────────────────────
-var state = {
-  user:          null,
-  settings:      {},
-  logs:          [],
-  records:       [],
-  userMeta:      {}, // [v3.0 추가] 서명 및 직책 데이터
-  currentFilter: 'all',
-  selectMode:    false,
-  revokeMode:    false,
-  serverToday:   '',
-  noticeHidden:  false
-};
+  formState = { checkData: {}, defectTexts: {}, actionTexts: {}, defectPhotos: {}, actionPhotos: {} };
 
-// 폼 작성 중 임시 데이터
-var formState = {
-  checkData:    {},
-  defectTexts:  {},
-  actionTexts:  {},
-  defectPhotos: {},
-  actionPhotos: {}
-};
-
-// 이미지 편집 상태
-var editState = {
-  tool:       'circle',
-  color:      '#ff0000',
-  targetKey:  null,
-  targetType: null,
-  baseImg:    null,
-  shapes:     [],
-  drawing:    false,
-  startX:     0,
-  startY:     0
-};
-
-// 현재 열려있는 레코드 정보 (DOM 덮어쓰기 방지용 전역 관리)
-var currentRecordId  = '';
-var currentLogInfo   = { logId: '', logTitle: '' };
-
-// 기본(P01) 양식 HTML 캐시
-var genericFormHtml  = '';
-
-// 기본 점검 항목 (P01 위생점검용)
-var CHECK_ITEMS = [
-  { key: 'floor',   label: '작업장 바닥 청결 상태' },
-  { key: 'hygiene', label: '개인 위생복 착용 상태' },
-  { key: 'hands',   label: '작업 전 손세정 여부'   },
-  { key: 'equip',   label: '설비·기계 청결 상태'   },
-  { key: 'pest',    label: '방충·방서 이상 없음'   }
-];
-
-// 롱프레스 타이머
-var pressTimer = null;
-
-// 서명 캔버스 관련
-var canvas, ctx, sigDrawing = false;
-
-// ── IndexedDB (오프라인 저장 큐) ───────────────────────
-var DB_NAME  = 'haccpOfflineDB';
-var DB_VER   = 1;
-var DB_STORE = 'syncQueue';
-var idb      = null;
-
-function initIDB(cb) {
-  var req = indexedDB.open(DB_NAME, DB_VER);
-  req.onupgradeneeded = function(e) {
-    e.target.result.createObjectStore(DB_STORE, { autoIncrement: true });
-  };
-  req.onsuccess = function(e) { idb = e.target.result; if (cb) cb(); };
-  req.onerror   = function()  { if (cb) cb(); };
-}
-
-function idbAdd(data, cb) {
-  if (!idb) { if (cb) cb(false); return; }
-  var tx  = idb.transaction(DB_STORE, 'readwrite');
-  var req = tx.objectStore(DB_STORE).add(data);
-  req.onsuccess = function(e) { if (cb) cb(e.target.result); };
-  req.onerror   = function()  { if (cb) cb(false); };
-}
-
-function idbGetAll(cb) {
-  if (!idb) { cb([], []); return; }
-  var results = [], keys = [];
-  var tx = idb.transaction(DB_STORE, 'readonly');
-  tx.objectStore(DB_STORE).openCursor().onsuccess = function(e) {
-    var cur = e.target.result;
-    if (cur) { results.push(cur.value); keys.push(cur.key); cur.continue(); }
-    else cb(results, keys);
-  };
-}
-
-function idbDelete(key, cb) {
-  if (!idb) { if (cb) cb(); return; }
-  var tx = idb.transaction(DB_STORE, 'readwrite');
-  tx.objectStore(DB_STORE).delete(key);
-  tx.oncomplete = function() { if (cb) cb(); };
-}
-
-/**
- * 온라인 복귀 시 IndexedDB 큐 일괄 동기화
- */
-function flushQueue() {
-  idbGetAll(function(items, keys) {
-    if (!items.length) return;
-    showToast('오프라인 저장 데이터 ' + items.length + '건 동기화 중...', 'info');
-    (function next(idx) {
-      if (idx >= items.length) {
-        showToast('동기화 완료!', 'success');
-        refreshRecordsBackground();
-        return;
-      }
-      var item = items[idx];
-      google.script.run
-        .withSuccessHandler(function() {
-          idbDelete(keys[idx], function() { next(idx + 1); });
-        })
-        .withFailureHandler(function() { next(idx + 1); })
-        .saveFormData(item.recordId, item.logId, item.dataJson, item.defectInfo);
-    })(0);
-  });
-}
-
-window.addEventListener('online',  function() { showToast('인터넷 연결됨', 'info'); flushQueue(); });
-window.addEventListener('offline', function() { showToast('오프라인 상태입니다.', 'info'); });
-
-// ── 앱 초기화 ──────────────────────────────────────────
-window.onload = function() {
   var formArea = document.getElementById('form-scroll-area');
-  if (formArea) genericFormHtml = formArea.innerHTML;
+  document.getElementById('form-title').innerText = title;
 
-  initIDB(function() { loadData(); });
-  initPullToRefresh();
-};
-
-/**
- * Pull-to-Refresh 초기화
- */
-function initPullToRefresh() {
-  var startY = 0, isPulling = false;
-  var threshold = 80;
-  var indicator = document.getElementById('ptr-indicator');
-
-  document.addEventListener('touchstart', function(e) {
-    startY    = e.touches[0].clientY;
-    isPulling = window.scrollY === 0;
-  }, { passive: true });
-
-  document.addEventListener('touchmove', function(e) {
-    if (!isPulling) return;
-    var dist = e.touches[0].clientY - startY;
-    if (dist > 20) {
-      indicator.classList.add('visible');
-      indicator.innerText = dist > threshold ? '🔄 놓으면 새로고침' : '↓ 아래로 당기세요';
-    }
-  }, { passive: true });
-
-  document.addEventListener('touchend', function(e) {
-    if (!isPulling) return;
-    var dist = e.changedTouches[0].clientY - startY;
-    indicator.classList.remove('visible');
-    isPulling = false;
-    if (dist > threshold) {
-      indicator.classList.add('visible');
-      indicator.innerText = '새로고침 중...';
-      refreshRecordsBackground(function() { indicator.classList.remove('visible'); });
-    }
-  });
-}
-
-/**
- * 서버에서 초기 데이터 로드
- */
-function loadData() {
-  showLoading('데이터 동기화 중...');
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (!res.success) { alert('서버 오류: ' + res.message); showLoginScreen(); return; }
-      state.settings    = res.settings;
-      state.logs        = res.logs;
-      state.records     = res.records;
-      state.serverToday = res.serverToday;
-      state.userMeta    = res.userMeta || {}; // 직책, 서명 데이터 로드
-      renderBaseUI();
-      checkSession();
-    })
-    .withFailureHandler(function() {
-      alert('데이터 로드 실패!');
-      hideLoading();
-    })
-    .getInitialData();
-}
-
-/**
- * 백그라운드에서 records만 갱신
- */
-function refreshRecordsBackground(cb) {
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.success) { state.records = res.records; renderLists(); }
-      if (cb) cb();
-    })
-    .getInitialData();
-}
-
-// ── 로딩/토스트 UI ──────────────────────────────────────
-function hideLoading() {
-  document.getElementById('loading-overlay').style.display = 'none';
-  document.getElementById('app').classList.remove('hidden');
-}
-
-function showLoading(msg) {
-  document.getElementById('loading-overlay').style.display = 'flex';
-  document.getElementById('loading-msg').innerText = msg || '처리 중...';
-}
-
-function showToast(msg, type) {
-  var t = document.createElement('div');
-  t.className = 'toast ' + (type || 'info');
-  t.innerText = msg;
-  document.getElementById('toast-container').appendChild(t);
-  setTimeout(function() {
-    t.style.opacity    = '0';
-    t.style.transition = 'opacity 0.5s';
-    setTimeout(function() { t.remove(); }, 500);
-  }, 3000);
-}
-
-function showCardLoading(recordId) {
-  var wrap = document.getElementById('card-wrap-' + recordId);
-  if (!wrap) return;
-  var ov = document.createElement('div');
-  ov.className = 'done-card-overlay';
-  ov.id        = 'card-overlay-' + recordId;
-  ov.innerHTML = '<div class="spinner"></div>';
-  wrap.appendChild(ov);
-}
-
-function hideCardLoading(recordId) {
-  var ov = document.getElementById('card-overlay-' + recordId);
-  if (ov) ov.remove();
-}
-
-// ── 세션 / 로그인 ──────────────────────────────────────
-function checkSession() {
-  var saved = sessionStorage.getItem('haccp_user');
-  if (saved) { loginSuccess(JSON.parse(saved)); }
-  else { hideLoading(); showLoginScreen(); }
-}
-
-function showLoginScreen() {
-  document.getElementById('login-screen').classList.remove('hidden');
-  document.getElementById('main-screen').classList.add('hidden');
-  document.getElementById('form-screen').classList.add('hidden');
-}
-
-function handleLogout() {
-  sessionStorage.clear();
-  state.user = null;
-  document.getElementById('user-pw').value = '';
-  showLoginScreen();
-  hideLoading();
-}
-
-function handleLogin() {
-  var id = document.getElementById('user-id').value.trim();
-  var pw = document.getElementById('user-pw').value;
-  if (!id || !pw) return;
-  showLoading('사용자 인증 중...');
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res.success) {
-        res.userInfo.mustChangePw = res.mustChangePw;
-        sessionStorage.setItem('haccp_user', JSON.stringify(res.userInfo));
-        loginSuccess(res.userInfo);
-      } else {
-        hideLoading();
-        alert(res.message);
-      }
-    })
-    .withFailureHandler(function() { hideLoading(); alert('통신 오류!'); })
-    .login(id, pw);
-}
-
-function loginKeydown(e) { if (e.key === 'Enter') handleLogin(); }
-
-function loginSuccess(user) {
-  state.user = user;
-  hideLoading();
-
-  if (parseInt(user.role) >= 3) {
-    document.getElementById('admin-post-btn').classList.remove('hidden');
+  if (logId === 'fo01') {
+    var tpl = document.getElementById('tpl-fo01');
+    if (tpl) formArea.innerHTML = tpl.innerHTML;
+    if (typeof initForeignBodyForm === 'function') initForeignBodyForm(date);
+  } else {
+    if (genericFormHtml) formArea.innerHTML = genericFormHtml;
+    initGenericForm(date);
   }
 
-  if (user.mustChangePw) { forceChangePassword(); return; }
-  if (!user.signature)   { forceSignature();       return; }
-
-  document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('form-screen').classList.add('hidden');
-  document.getElementById('main-screen').classList.remove('hidden');
-  
-  // [v3.0 수정] 직책 이름 표시
-  var displayRank = user.rank || '담당';
-  document.getElementById('display-user').innerText = displayRank + ' ' + user.name;
-
-  if (state.noticeHidden) document.getElementById('notice-box').style.display = 'none';
-  renderLists();
+  hideLoading();
+  document.getElementById('main-screen').classList.add('hidden');
+  document.getElementById('form-screen').classList.remove('hidden');
 }
 
-function toggleNotice() {
-  document.getElementById('notice-box').style.display = 'none';
-  state.noticeHidden = true;
+window.openForm = openForm;
+
+// ── 기본 위생점검 양식 (P01) ───────────────────────────
+function initGenericForm(date) {
+  document.getElementById('f-date').value   = date || state.serverToday;
+  document.getElementById('f-writer').value = state.user.name;
+  document.getElementById('f-temp').value   = '';
+  document.getElementById('f-memo').value   = '';
+  CHECK_ITEMS.forEach(function(item) { formState.checkData[item.key] = 'ok'; });
+  renderGenericCheckItems();
 }
 
-// ── 공통 UI 렌더링 (로고/회사명) ───────────────────────
-function renderBaseUI() {
-  var compName = state.settings.CompanyName || 'HACCP 스마트 공장';
-  document.getElementById('factory-name-login').innerText = compName;
-  document.getElementById('footer-company').innerText     = compName;
+function renderGenericCheckItems() {
+  var container = document.getElementById('check-items-container');
+  if (!container) return;
+  container.innerHTML = '';
 
-  ['logo-container-login', 'logo-container-main'].forEach(function(id) {
-    var c = document.getElementById(id);
-    if (!c) return;
-    c.innerHTML = state.settings.Logo
-      ? '<img src="' + state.settings.Logo + '" class="logo-img">'
-      : '<span>🏢 ' + compName + '</span>';
+  CHECK_ITEMS.forEach(function(item) {
+    var isNg = formState.checkData[item.key] === 'ng';
+    var row  = document.createElement('div');
+    row.className = 'check-item-row';
+    row.id        = 'row-' + item.key;
+    row.innerHTML =
+      '<div class="check-item-label">' + item.label + '</div>' +
+      '<div class="toggle-group">' +
+        '<button class="toggle-btn ok' + (!isNg ? ' selected' : '') + '" id="btn-ok-' + item.key +
+          '" onclick="selectGenericResult(\'' + item.key + '\',\'ok\')">✔ 적합</button>' +
+        '<button class="toggle-btn ng' + ( isNg ? ' selected' : '') + '" id="btn-ng-' + item.key +
+          '" onclick="selectGenericResult(\'' + item.key + '\',\'ng\')">✘ 부적합</button>' +
+      '</div>' +
+      '<div class="defect-input-area' + (isNg ? '' : ' hidden') + '" id="defect-area-' + item.key + '">' +
+        '<div class="defect-block">' +
+          '<label class="ng-label">⚠️ 부적합 내용 <span style="color:var(--danger);">*필수</span></label>' +
+          '<textarea id="defect-text-' + item.key + '" placeholder="부적합 내용을 입력하세요.">' +
+            (formState.defectTexts[item.key] || '') + '</textarea>' +
+          '<div class="photo-row">' +
+            '<div id="defect-photo-preview-' + item.key + '">' + getPhotoHtml('defect', item.key) + '</div>' +
+            '<button class="photo-add-btn" onclick="triggerPhoto(\'defect\',\'' + item.key + '\',\'camera\')"><span>📷</span>카메라</button>' +
+            '<button class="photo-add-btn gallery-btn" onclick="triggerPhoto(\'defect\',\'' + item.key + '\',\'gallery\')"><span>🖼</span>갤러리</button>' +
+            '<input type="file" accept="image/*" capture="environment" class="photo-input" id="photo-input-defect-camera-' + item.key + '" onchange="handlePhoto(\'defect\',\'' + item.key + '\',this,\'' + item.label + '\')">' +
+            '<input type="file" accept="image/*" class="photo-input" id="photo-input-defect-gallery-' + item.key + '" onchange="handlePhoto(\'defect\',\'' + item.key + '\',this,\'' + item.label + '\')">' +
+          '</div>' +
+        '</div>' +
+        '<div class="defect-block action-block">' +
+          '<label class="ok-label">✅ 개선조치 내용 <span style="color:var(--danger);">*필수</span></label>' +
+          '<textarea id="action-text-' + item.key + '" placeholder="개선조치 내용을 입력하세요.">' +
+            (formState.actionTexts[item.key] || '') + '</textarea>' +
+          '<div class="photo-row">' +
+            '<div id="action-photo-preview-' + item.key + '">' + getPhotoHtml('action', item.key) + '</div>' +
+            '<button class="photo-add-btn" onclick="triggerPhoto(\'action\',\'' + item.key + '\',\'camera\')"><span>📷</span>카메라</button>' +
+            '<button class="photo-add-btn gallery-btn" onclick="triggerPhoto(\'action\',\'' + item.key + '\',\'gallery\')"><span>🖼</span>갤러리</button>' +
+            '<input type="file" accept="image/*" capture="environment" class="photo-input" id="photo-input-action-camera-' + item.key + '" onchange="handlePhoto(\'action\',\'' + item.key + '\',this,\'' + item.label + '\')">' +
+            '<input type="file" accept="image/*" class="photo-input" id="photo-input-action-gallery-' + item.key + '" onchange="handlePhoto(\'action\',\'' + item.key + '\',this,\'' + item.label + '\')">' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    container.appendChild(row);
   });
 }
 
-// ── 탭 전환 ────────────────────────────────────────────
-function switchTab(t) {
-  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
-  document.querySelectorAll('.list-section').forEach(function(s) { s.classList.add('hidden'); });
-  document.getElementById('tab-' + t).classList.add('active');
-  document.getElementById(t + '-section').classList.remove('hidden');
+function selectGenericResult(key, result) {
+  formState.checkData[key] = result;
+  document.getElementById('btn-ok-' + key).classList.toggle('selected', result === 'ok');
+  document.getElementById('btn-ng-' + key).classList.toggle('selected', result === 'ng');
+  document.getElementById('defect-area-' + key).classList.toggle('hidden', result === 'ok');
+  if (result === 'ng') document.getElementById('defect-text-' + key).focus();
 }
 
-function filterDoneList(filterType, btnElem) {
-  document.querySelectorAll('.sub-filter-btn').forEach(function(b) { b.classList.remove('active'); });
-  btnElem.classList.add('active');
-  state.currentFilter = filterType;
-  renderDoneList();
+function setAllOk() {
+  CHECK_ITEMS.forEach(function(item) { selectGenericResult(item.key, 'ok'); });
+  showToast('전체 항목을 적합으로 설정했습니다.', 'success');
+}
+
+// ── 데이터 수집 라우터 ─────────────────────────────────
+function collectFormData() {
+  if (currentLogInfo.logId === 'fo01') return collectForeignBodyData();
+
+  var data = {
+    temperature: document.getElementById('f-temp').value,
+    memo:        document.getElementById('f-memo').value,
+    items:       {}
+  };
+  CHECK_ITEMS.forEach(function(item) {
+    var dtEl = document.getElementById('defect-text-' + item.key);
+    var atEl = document.getElementById('action-text-' + item.key);
+    data.items[item.key] = {
+      result:      formState.checkData[item.key],
+      defectText:  dtEl ? dtEl.value : '',
+      actionText:  atEl ? atEl.value : '',
+      defectPhoto: formState.defectPhotos[item.key] || '',
+      actionPhoto: formState.actionPhotos[item.key] || ''
+    };
+  });
+  return data;
+}
+
+// ── 검증 라우터 ────────────────────────────────────────
+function validateForm(data) {
+  if (currentLogInfo.logId === 'fo01') return validateForeignBody(data);
+
+  if (!data.temperature && data.temperature !== 0) {
+    showToast('온도를 입력해주세요!', 'error'); return false;
+  }
+  var tempVal = parseFloat(data.temperature);
+  if (tempVal < -10 || tempVal > 50) {
+    if (!confirm('입력한 온도(' + tempVal + '℃)가 정상 범위를 벗어났습니다. 계속하시겠습니까?')) return false;
+  }
+  for (var i = 0; i < CHECK_ITEMS.length; i++) {
+    var item = CHECK_ITEMS[i];
+    var d    = data.items[item.key];
+    if (d.result === 'ng') {
+      if (!d.defectText.trim()) { showToast('[' + item.label + '] 부적합 내용을 입력해주세요!', 'error'); return false; }
+      if (!d.actionText.trim()) { showToast('[' + item.label + '] 개선조치 내용을 입력해주세요!', 'error'); return false; }
+    }
+  }
+  return true;
+}
+
+// ── 부적합 요약 라우터 ─────────────────────────────────
+function getDefectSummary(data) {
+  if (currentLogInfo.logId === 'fo01') return getForeignBodyDefectSummary(data);
+
+  for (var i = 0; i < CHECK_ITEMS.length; i++) {
+    var item = CHECK_ITEMS[i];
+    var d    = data.items[item.key];
+    if (d && d.result === 'ng') {
+      return JSON.stringify({ item: item.label, content: d.defectText, action: d.actionText });
+    }
+  }
+  return '';
+}
+
+// ── 임시저장 후 나가기 ─────────────────────────────────
+function saveDraftAndBack() {
+  var dataJson = JSON.stringify(collectFormData());
+
+  // 나가기 전 전체 로딩으로 중복 액션 방지
+  showLoading('임시저장 중...');
+
+  function goBack() {
+    hideLoading();
+    document.getElementById('form-screen').classList.add('hidden');
+    document.getElementById('main-screen').classList.remove('hidden');
+  }
+
+  if (navigator.onLine) {
+    google.script.run
+      .withSuccessHandler(function() {
+        goBack();
+        showToast('임시저장 완료 ✔', 'success');
+      })
+      .withFailureHandler(function() {
+        idbAdd({ type: 'saveDraft', recordId: currentRecordId, logId: currentLogInfo.logId, dataJson: dataJson }, null);
+        goBack();
+        showToast('오프라인 저장됨', 'info');
+      })
+      .saveDraft(currentRecordId, currentLogInfo.logId, dataJson);
+  } else {
+    idbAdd({ type: 'saveDraft', recordId: currentRecordId, logId: currentLogInfo.logId, dataJson: dataJson },
+      function() {
+        goBack();
+        showToast('오프라인 저장됨', 'info');
+      });
+  }
+}
+
+// ── 서명 확인 모달 ─────────────────────────────────────
+function openSignModal() {
+  var data = collectFormData();
+  if (!validateForm(data)) return;
+
+  openModal('✍ 서명 확인',
+    '<p style="font-size:13px;color:#555;margin-bottom:10px;">아래 서명으로 제출합니다.<br>' +
+    '<strong style="color:var(--danger);">제출 후에는 수정이 불가능합니다.</strong></p>' +
+    '<div style="text-align:center;border:1px solid #ddd;border-radius:8px;padding:10px;background:#f9f9f9;margin-bottom:15px;">' +
+      '<img src="' + state.user.signature + '" style="max-height:100px;max-width:100%;" alt="서명">' +
+    '</div>' +
+    '<div class="btn-group">' +
+      '<button onclick="closeModal()" class="btn-flex" style="background:#eee;">취소</button>' +
+      '<button onclick="submitForm()" class="btn-flex btn-primary" style="background:var(--success);">✔ 제출 확정</button>' +
+    '</div>',
+    true);
+}
+
+// ── 최종 제출 ──────────────────────────────────────────
+function submitForm() {
+  closeModal();
+
+  var data       = collectFormData();
+  var dataJson   = JSON.stringify(data);
+  var defectInfo = getDefectSummary(data);
+
+  // 로컬 상태 즉시 반영
+  state.records.forEach(function(r) {
+    if (r.recordId === currentRecordId) { r.status = '작성완료'; r.defectInfo = defectInfo; }
+  });
+
+  // 화면 전환 후 전체 로딩 — 서버 응답까지 카드 액션 차단
+  document.getElementById('form-screen').classList.add('hidden');
+  document.getElementById('main-screen').classList.remove('hidden');
+  renderLists();
+  showLoading('서버 저장 중...');
+
+  function doSave() {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        hideLoading();
+        if (res && res.success) {
+          showToast('저장 완료 ✔', 'success');
+        } else {
+          saveToQueue();
+          showToast('오프라인 저장됨', 'info');
+        }
+      })
+      .withFailureHandler(function() {
+        hideLoading();
+        saveToQueue();
+        showToast('오프라인 저장됨', 'info');
+      })
+      .saveFormData(currentRecordId, currentLogInfo.logId, dataJson, defectInfo);
+  }
+
+  function saveToQueue() {
+    idbAdd({
+      type: 'saveFormData',
+      recordId:   currentRecordId,
+      logId:      currentLogInfo.logId,
+      dataJson:   dataJson,
+      defectInfo: defectInfo
+    }, null);
+  }
+
+  if (navigator.onLine) { doSave(); } else { hideLoading(); saveToQueue(); showToast('오프라인 저장됨', 'info'); }
+}
+
+// ── 일지 뷰어 라우터 ───────────────────────────────────
+function viewRecord(recordId, logId, title) {
+  openModal('📋 ' + title,
+    '<div style="text-align:center;padding:20px;"><div class="spinner" style="margin:0 auto;"></div>' +
+    '<p style="color:#999;margin-top:10px;">불러오는 중...</p></div>',
+    true);
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) {
+        document.getElementById('modal-body').innerHTML = '<p style="color:red;">불러오기 실패: ' + res.message + '</p>';
+        return;
+      }
+      var rec = state.records.find(function(r) { return r.recordId === recordId; });
+      var html = '';
+
+      if (rec && rec.logId === 'fo01' && typeof buildForeignBodyViewHtml === 'function') {
+        html = buildForeignBodyViewHtml(rec, res.dataJson, title, res);
+      } else {
+        html = buildGenericViewHtml(rec, res.dataJson, title, res);
+      }
+      document.getElementById('modal-body').innerHTML = html;
+    })
+    .withFailureHandler(function() {
+      document.getElementById('modal-body').innerHTML = '<p style="color:red;">불러오기 실패</p>';
+    })
+    .getRecordDetail(recordId, logId);
+}
+
+window.viewRecord = viewRecord;
+
+/**
+ * 결재란 HTML 생성 공통 헬퍼
+ * - 검토자 없으면 검토 칸 숨김
+ * - 가로 한 줄 배치
+ * - 각 칸: 역할명 / 이름 / 서명 / 날짜
+ */
+function buildSigRowHtml(rec, sigRes) {
+  var writerSig   = state.user.signature && rec.writerId === state.user.id ? state.user.signature : '';
+  var reviewerSig = (sigRes && sigRes.reviewerSignature) ? sigRes.reviewerSignature : '';
+  var approverSig = (sigRes && sigRes.approverSignature) ? sigRes.approverSignature : '';
+
+  var hasReviewer = rec.reviewer && rec.reviewer !== '' && rec.reviewer !== '-';
+  var hasApprover = rec.approver && rec.approver !== '' && rec.approver !== '-';
+
+  function sigBox(roleLabel, name, sigSrc, date) {
+    var sigContent = sigSrc
+      ? '<img src="' + sigSrc + '" style="max-width:100%;max-height:55px;object-fit:contain;" alt="서명" onerror="this.style.display=\'none\'">'
+      : '<span style="color:#ccc;font-size:11px;">서명없음</span>';
+    return (
+      '<div class="sig-box">' +
+        '<div class="sig-box-role">' + roleLabel + '</div>' +
+        '<div class="sig-box-name">' + (name || '-') + '</div>' +
+        '<div class="sig-box-img">' + sigContent + '</div>' +
+        '<div class="sig-box-date">' + (date || '') + '</div>' +
+      '</div>'
+    );
+  }
+
+  var html = '<div class="sig-row-wrap">';
+  html += sigBox('작성', rec.writerName, writerSig, rec.date);
+  if (hasReviewer) html += sigBox('검토', rec.reviewer, reviewerSig, rec.date);
+  html += sigBox('승인', hasApprover ? rec.approver : '-', hasApprover ? approverSig : '', hasApprover ? rec.date : '');
+  html += '</div>';
+
+  return html;
+}
+
+/**
+ * 기본 위생점검 뷰어 HTML 생성
+ */
+function buildGenericViewHtml(rec, dataJsonStr, title, sigRes) {
+  var data = {};
+  try { data = JSON.parse(dataJsonStr); } catch (e) {}
+  if (!data || !data.items) {
+    return '<p style="color:#999;text-align:center;padding:20px;">작성된 내용이 없습니다.</p>';
+  }
+
+  var itemsHtml = CHECK_ITEMS.map(function(item) {
+    var d          = data.items[item.key] || {};
+    var resultHtml = d.result === 'ok'
+      ? '<span class="result-ok">✔ 적합</span>'
+      : '<span class="result-ng">✘ 부적합</span>';
+    var photoHtml = '';
+    if (d.result === 'ng') {
+      var defImg = d.defectPhoto ? '<br><img src="' + d.defectPhoto + '" style="max-width:120px;border-radius:6px;margin-top:4px;" onerror="this.style.display=\'none\'">' : '';
+      var actImg = d.actionPhoto ? '<br><img src="' + d.actionPhoto + '" style="max-width:120px;border-radius:6px;margin-top:4px;" onerror="this.style.display=\'none\'">' : '';
+      photoHtml =
+        '<br><span style="font-size:11px;color:#c0392b;">부적합: ' + (d.defectText || '-') + '</span>' + defImg +
+        '<br><span style="font-size:11px;color:#27ae60;">조치: '   + (d.actionText  || '-') + '</span>' + actImg;
+    }
+    return '<tr><td style="text-align:left;padding-left:10px;">' + item.label + '</td><td>' + resultHtml + photoHtml + '</td></tr>';
+  }).join('');
+
+  return '<div class="view-form-wrap">' +
+    '<table class="view-header-table">' +
+      '<tr><td class="label">문서명</td><td>' + title + '</td><td class="label">점검일</td><td>' + (rec.date || '-') + '</td></tr>' +
+      '<tr><td class="label">점검자</td><td>' + (rec.writerName || '-') + '</td><td class="label">온도</td><td>' + (data.temperature || '-') + ' ℃</td></tr>' +
+    '</table>' +
+    '<table class="view-check-table">' +
+      '<tr><th style="width:55%">점검 항목</th><th>결과</th></tr>' +
+      itemsHtml +
+    '</table>' +
+    (data.memo ? '<div style="background:#f9f9f9;border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:15px;font-size:13px;"><strong>특이사항:</strong> ' + data.memo + '</div>' : '') +
+    buildSigRowHtml(rec, sigRes) +
+    '</div>';
 }
 </script>

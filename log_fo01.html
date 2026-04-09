@@ -2,16 +2,8 @@
   log_fo01.html — 이물관리 점검표
   문서번호: PBⅡ-FO-01 (Logs 시트 docNo 컬럼 기준)
   logId:    fo01
-
-  ※ 새 일지 파일 작성 가이드
-     1. 이 파일을 복사해서 시작
-     2. FB_CHECK_ITEMS 를 해당 일지 항목으로 교체
-     3. logId 를 Logs 시트 id 값과 맞춤
-     4. index.html 하단 include 목록에 추가
-     5. js_form.html openForm() / viewRecord() 라우터에 else if 블록 추가
 -->
 
-<!-- ── 폼 템플릿 (openForm 호출 시 form-scroll-area에 삽입됨) ── -->
 <script type="text/template" id="tpl-fo01">
   <div class="form-section">
     <h3>1. 점검 기본 정보</h3>
@@ -50,10 +42,10 @@
 
     <div class="photo-row" style="margin-top:10px;">
       <div id="defect-photo-preview-fb_global"></div>
-      <button type="button" class="photo-add-btn"         onclick="triggerPhoto('defect','fb_global','camera')"><span>📷</span>카메라</button>
+      <button type="button" class="photo-add-btn" onclick="triggerPhoto('defect','fb_global','camera')"><span>📷</span>카메라</button>
       <button type="button" class="photo-add-btn gallery-btn" onclick="triggerPhoto('defect','fb_global','gallery')"><span>🖼</span>갤러리</button>
       <input type="file" accept="image/*" capture="environment"
-        id="photo-input-defect-camera-fb_global"  style="display:none;"
+        id="photo-input-defect-camera-fb_global" style="display:none;"
         onchange="handlePhoto('defect','fb_global',this,'이물_공통부적합')">
       <input type="file" accept="image/*"
         id="photo-input-defect-gallery-fb_global" style="display:none;"
@@ -65,71 +57,49 @@
 <script>
 // ════════════════════════════════════════════════════════
 //  log_fo01.html — 이물관리 점검표 로직
-//  전역 state, formState, showToast, triggerPhoto,
-//  handlePhoto, getPhotoHtml 는 js_core / js_photo 참조
 // ════════════════════════════════════════════════════════
 
-// ── 점검 항목 정의 ─────────────────────────────────────
-// 공정명 | 관리항목 형태를 label로 표기
 var FB_CHECK_ITEMS = [
-  // 공통
   { key: 'c_hygiene',   label: '[공통] 위생복 — 앞치마·토시 등 이물 발생 확인'        },
   { key: 'c_pest',      label: '[공통] 방충·방서 — 포충등·트랩 이상 여부'             },
   { key: 'c_equip',     label: '[공통] 설비/도구 — 작업·청소도구 파손 여부'           },
   { key: 'c_clean',     label: '[공통] 위생점검 — Clean time 2회/일 실시 여부'        },
-  // 입고
   { key: 'in_exterior', label: '[입고] 외관 — 이물 및 외포장 상태 확인'               },
-  { key: 'in_equip',    label: '[입고] 작업설비 — 파렛트 파손 여부 확인'             },
+  { key: 'in_equip',    label: '[입고] 작업설비 — 파렛트 파손 여부 확인'              },
   { key: 'in_etc',      label: '[입고] 기타 — 외부 출입 도크 밀폐 여부'               },
-  // 보관
   { key: 'st_cold',     label: '[보관] 냉장·냉동 — 이물 혼입 여부 확인'              },
   { key: 'st_tool',     label: '[보관] 도구 — 이동도구·파렛트 파손 여부'             },
-  // 해동
   { key: 'th_raw',      label: '[해동] 원재료 — 외포장 이물 제거 확인'               },
   { key: 'th_equip',    label: '[해동] 설비/도구 — 고주파해동기 청결·파손 확인'       },
-  // 방혈
   { key: 'bl_raw',      label: '[방혈] 원재료 — 내포장 청결·이물 확인'               },
   { key: 'bl_equip',    label: '[방혈] 설비/도구 — 해동 대차 청결·파손 확인'         },
-  // 전처리
   { key: 'pr_raw',      label: '[전처리] 원재료 — 비가식부·이물 제거 확인'           },
   { key: 'pr_pack',     label: '[전처리] 포장재 — 내포장재 조각·이물 유입 확인'       },
-  // 자숙
   { key: 'bo_raw',      label: '[자숙] 원재료 — 이물 유입·작업환경 확인'             },
   { key: 'bo_equip',    label: '[자숙] 설비/도구 — 자숙탱크 청결·파손 확인'          },
-  // 파쇄
   { key: 'cr_raw',      label: '[파쇄] 원재료 — 규격·이물 유입 확인'                },
   { key: 'cr_equip',    label: '[파쇄] 설비/도구 — 파쇄기 청결·파손 확인'           },
-  // (소스) 계량
   { key: 'sm_sub',      label: '[소스계량] 부재료 — 이물 유입·작업환경 확인'         },
   { key: 'sm_equip',    label: '[소스계량] 설비/도구 — 자숙탱크 청결·파손 확인'      },
-  // (소스) 배합/가열
   { key: 'sh_sub',      label: '[소스배합/가열] 부재료 — 이물 유입·작업환경 확인'    },
   { key: 'sh_equip',    label: '[소스배합/가열] 설비/도구 — 배합탱크 청결·파손 확인' },
-  // 내포장
   { key: 'ip_raw',      label: '[내포장] 원재료 — 충진 이물·작업환경 확인'           },
   { key: 'ip_equip1',   label: '[내포장] 설비/도구 — 내·외부 이물제거 청소상태'      },
   { key: 'ip_equip2',   label: '[내포장] 설비/도구 — 정상작동·부식·마모 여부'        },
   { key: 'ip_pack',     label: '[내포장] 포장재 — 파손·이물 유입 확인'               },
-  // X-ray
   { key: 'xr_equip1',   label: '[X-ray검출] 설비/도구 — 내·외부 이물제거 청소상태'  },
   { key: 'xr_equip2',   label: '[X-ray검출] 설비/도구 — 정상작동·부식·마모 여부'    },
-  // 중량선별
   { key: 'ws_equip1',   label: '[중량선별] 설비/도구 — 내·외부 이물제거 청소상태'   },
   { key: 'ws_equip2',   label: '[중량선별] 설비/도구 — 정상작동·부식·마모 여부'     },
-  // 멸균/살균
   { key: 'st2_equip1',  label: '[멸균/살균] 설비/도구 — 내·외부 이물제거 청소상태'  },
   { key: 'st2_equip2',  label: '[멸균/살균] 설비/도구 — 정상작동·부식·마모 여부'    },
-  // 제수
   { key: 'dr_equip1',   label: '[제수] 설비/도구 — 내·외부 이물제거 청소상태'       },
   { key: 'dr_equip2',   label: '[제수] 설비/도구 — 정상작동·부식·마모 여부'         },
-  // 외포장
   { key: 'op_equip1',   label: '[외포장] 설비/도구 — 내·외부 이물제거 청소상태'     },
   { key: 'op_equip2',   label: '[외포장] 설비/도구 — 정상작동·부식·마모 여부'       },
-  // 완제품 보관
   { key: 'fp_product',  label: '[완제품보관] 완제품 — 구획·식별·적재 기준 확인'      },
   { key: 'fp_env',      label: '[완제품보관] 환경 — 보관기준(온도·청결) 확인'        },
   { key: 'fp_equip',    label: '[완제품보관] 설비/도구 — 파렛트 파손·청결 확인'      },
-  // 출하
   { key: 'sh2_equip',   label: '[출하] 설비/도구 — 운반기구·차량 청결상태 확인'      },
   { key: 'sh2_pack',    label: '[출하] 포장재 — 포장재 파손 여부 확인'               }
 ];
@@ -170,14 +140,13 @@ function selectFbResult(key, result) {
   document.getElementById('fb-btn-ok-' + key).classList.toggle('selected', result === 'ok');
   document.getElementById('fb-btn-ng-' + key).classList.toggle('selected', result === 'ng');
 
-  var hasNg      = FB_CHECK_ITEMS.some(function(item) { return formState.checkData[item.key] === 'ng'; });
-  var defectSec  = document.getElementById('fb-defect-section');
+  var hasNg     = FB_CHECK_ITEMS.some(function(item) { return formState.checkData[item.key] === 'ng'; });
+  var defectSec = document.getElementById('fb-defect-section');
 
   if (hasNg) {
     defectSec.classList.remove('hidden');
   } else {
     defectSec.classList.add('hidden');
-    // 전부 적합으로 돌아오면 부적합 입력 초기화
     document.getElementById('fb-defect-memo').value = '';
     formState.defectPhotos['fb_global'] = '';
     var pv = document.getElementById('defect-photo-preview-fb_global');
@@ -229,7 +198,8 @@ function getForeignBodyDefectSummary(data) {
 }
 
 // ── 뷰어 HTML 생성 ─────────────────────────────────────
-function buildForeignBodyViewHtml(rec, dataJsonStr, title) {
+// sigRes: getRecordDetail 서버 응답 (검토자/승인자 서명 포함)
+function buildForeignBodyViewHtml(rec, dataJsonStr, title, sigRes) {
   var data = {};
   try { data = JSON.parse(dataJsonStr); } catch (e) {}
   if (!data || !data.items) {
@@ -258,16 +228,6 @@ function buildForeignBodyViewHtml(rec, dataJsonStr, title) {
       '</div>';
   }
 
-  var sigHtml = '<div class="view-sig-row">';
-  ['작성', '검토', '승인'].forEach(function(label) {
-    var name   = label === '작성' ? (rec.writerName || '-') : (label === '검토' ? (rec.reviewer || '-') : (rec.approver || '-'));
-    var sigImg = (label === '작성' && state.user.signature && rec.writerId === state.user.id)
-      ? '<img src="' + state.user.signature + '" alt="서명">'
-      : '<span style="color:#ccc;font-size:12px;">서명없음</span>';
-    sigHtml += '<div class="view-sig-box"><div class="sig-label">' + label + '</div><strong style="font-size:13px;">' + name + '</strong><br>' + sigImg + '</div>';
-  });
-  sigHtml += '</div>';
-
   return '<div class="view-form-wrap">' +
     '<table class="view-header-table">' +
       '<tr><td class="label">문서명</td><td>' + title + '</td><td class="label">점검일</td><td>' + (rec.date || '-') + '</td></tr>' +
@@ -277,6 +237,8 @@ function buildForeignBodyViewHtml(rec, dataJsonStr, title) {
       '<tr><th style="width:75%">점검 항목</th><th>결과</th></tr>' +
       itemsHtml +
     '</table>' +
-    defectHtml + sigHtml + '</div>';
+    defectHtml +
+    buildSigRowHtml(rec, sigRes) +
+    '</div>';
 }
 </script>
