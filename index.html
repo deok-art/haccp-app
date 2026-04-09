@@ -22,12 +22,24 @@
 <div id="app" class="hidden">
 
   <!-- ══════════════════════════════════
+       공장 선택 화면
+  ══════════════════════════════════ -->
+  <div id="factory-select-screen" class="container hidden">
+    <div class="login-card">
+      <div id="logo-container-factory" class="logo-area" style="margin-bottom:15px;min-height:40px;"></div>
+      <h2 style="margin-top:0;margin-bottom:10px;">공장 선택</h2>
+      <p style="color:#888;font-size:13px;margin-bottom:20px;">접속할 공장을 선택하세요.</p>
+      <div id="factory-select-list" style="display:flex;flex-direction:column;gap:12px;"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════
        로그인 화면
   ══════════════════════════════════ -->
   <div id="login-screen" class="container hidden">
     <div class="login-card">
       <div id="logo-container-login" class="logo-area" style="margin-bottom:15px;min-height:40px;"></div>
-      <h2 id="factory-name-login" style="margin-top:0;margin-bottom:30px;">HACCP 관리 시스템</h2>
+      <h2 id="factory-name-login" style="margin-top:0;margin-bottom:30px;">순수본 HACCP 스마트 팩토리</h2>
       <input type="text"     id="user-id" placeholder="아이디"  class="input-field" value="admin" onkeydown="loginKeydown(event)">
       <input type="password" id="user-pw" placeholder="비밀번호" class="input-field" value="0000"  onkeydown="loginKeydown(event)">
       <button onclick="handleLogin()" class="btn-primary">접속하기</button>
@@ -53,9 +65,21 @@
           style="background:var(--warning);color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;">
           테스트
         </button>
+        <button id="print-btn" onclick="openPrintModal()"
+          style="background:var(--accent);color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;margin-left:4px;">
+          🖨 인쇄
+        </button>
       </div>
       <div class="user-info">
+        <button id="factory-switch-btn" onclick="switchFactory()"
+          style="background:rgba(44,62,80,0.08);color:var(--primary);border:1px solid rgba(44,62,80,0.15);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;margin-right:6px;">
+          🏭 <span id="current-factory-name"></span>
+        </button>
         <strong id="display-user"></strong> 님
+        <button id="user-mgmt-btn" class="hidden" onclick="openUserManagement()" class="btn-info"
+          style="background:rgba(44,62,80,0.08);color:var(--primary);border:1px solid rgba(44,62,80,0.15);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-right:4px;">
+          👥 사용자관리
+        </button>
         <button onclick="openMyInfo()"   class="btn-info">내 정보</button>
         <button onclick="handleLogout()" class="btn-logout">로그아웃</button>
       </div>
@@ -71,8 +95,7 @@
 
     <!-- 탭 -->
     <div class="tab-container">
-      <button id="tab-todo" class="tab-btn active" onclick="switchTab('todo')"
-        onpointerdown="startPress(event,'WRITE')" onpointerup="cancelPress()" onpointerleave="cancelPress()">
+      <button id="tab-todo" class="tab-btn active" onclick="switchTab('todo')">
         작성/미작성 <span id="todo-count" class="count-badge">0</span>
       </button>
       <button id="tab-done" class="tab-btn" onclick="switchTab('done')"
@@ -83,6 +106,12 @@
 
     <main class="container">
       <section id="todo-section" class="list-section">
+        <div style="display:flex;justify-content:flex-end;margin:0 0 10px 0;">
+          <button onclick="executeTodayCreateBatch()"
+            style="background:var(--primary);color:white;border:none;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:12px;">
+            + 오늘 일간 일지 일괄 생성
+          </button>
+        </div>
         <div id="todo-list"></div>
       </section>
       <section id="done-section" class="list-section hidden">
@@ -206,6 +235,21 @@
 
 </div><!-- /#app -->
 
+<!-- ── 프린트 오버레이 ── -->
+<div id="print-overlay" class="hidden">
+  <div id="print-overlay-toolbar">
+    <button onclick="triggerWindowPrint()"
+      style="padding:8px 18px;border-radius:8px;border:none;background:var(--primary);color:white;font-weight:bold;cursor:pointer;font-size:13px;">
+      🖨 인쇄/PDF저장
+    </button>
+    <button onclick="closePrintOverlay()"
+      style="padding:8px 14px;border-radius:8px;border:1px solid #999;background:white;cursor:pointer;font-size:13px;">
+      ✕ 닫기
+    </button>
+  </div>
+  <div id="print-overlay-content"></div>
+</div>
+
 <!-- ── 공통 모달 ── -->
 <div id="modal" class="modal hidden">
   <div class="modal-content">
@@ -233,7 +277,10 @@
 <?!= include('js_photo'); ?>
 
 <!-- 일지별 파일 (새 일지 추가 시 여기에 추가) -->
-<?!= include('log_fo01'); ?>
+<?!= include('log_si0201'); ?>
+
+<!-- 인쇄/PDF -->
+<?!= include('js_print'); ?>
 
 </body>
 </html>

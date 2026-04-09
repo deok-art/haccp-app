@@ -7,23 +7,59 @@ function openForm(recordId, logId, title, date) {
   currentRecordId = recordId;
   currentLogInfo  = { logId: logId, logTitle: title };
 
-  formState = { checkData: {}, defectTexts: {}, actionTexts: {}, defectPhotos: {}, actionPhotos: {} };
+  // 기존 저장 데이터 불러오기 (작성취소 후 재진입 시 데이터 유지)
+  showLoading('불러오는 중...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      formState = { checkData: {}, defectTexts: {}, actionTexts: {}, defectPhotos: {}, actionPhotos: {} };
 
-  var formArea = document.getElementById('form-scroll-area');
-  document.getElementById('form-title').innerText = title;
+      // 저장된 데이터가 있으면 formState에 복원
+      if (res && res.success && res.dataJson) {
+        try {
+          var saved = JSON.parse(res.dataJson);
+          if (saved.items) {
+            Object.keys(saved.items).forEach(function(key) {
+              var item = saved.items[key];
+              formState.checkData[key]    = item.result     || 'ok';
+              formState.defectTexts[key]  = item.defectText || '';
+              formState.actionTexts[key]  = item.actionText || '';
+              formState.defectPhotos[key] = item.defectPhoto|| '';
+              formState.actionPhotos[key] = item.actionPhoto|| '';
+            });
+          }
+          formState._savedTemp = saved.temperature || '';
+          formState._savedMemo = saved.memo        || '';
+        } catch (e) {}
+      }
 
-  if (logId === 'fo01') {
-    var tpl = document.getElementById('tpl-fo01');
-    if (tpl) formArea.innerHTML = tpl.innerHTML;
-    if (typeof initForeignBodyForm === 'function') initForeignBodyForm(date);
-  } else {
-    if (genericFormHtml) formArea.innerHTML = genericFormHtml;
-    initGenericForm(date);
-  }
+      var formArea = document.getElementById('form-scroll-area');
+      document.getElementById('form-title').innerText = title;
 
-  hideLoading();
-  document.getElementById('main-screen').classList.add('hidden');
-  document.getElementById('form-screen').classList.remove('hidden');
+      if (logId === 'si0201') {
+        var tpl = document.getElementById('tpl-si0201');
+        if (tpl) formArea.innerHTML = tpl.innerHTML;
+        if (typeof initSi0201Form === 'function') initSi0201Form(date, res && res.dataJson);
+      } else {
+        if (genericFormHtml) formArea.innerHTML = genericFormHtml;
+        initGenericForm(date);
+      }
+
+      hideLoading();
+      document.getElementById('main-screen').classList.add('hidden');
+      document.getElementById('form-screen').classList.remove('hidden');
+    })
+    .withFailureHandler(function() {
+      // 불러오기 실패해도 빈 폼으로 진입
+      formState = { checkData: {}, defectTexts: {}, actionTexts: {}, defectPhotos: {}, actionPhotos: {} };
+      var formArea = document.getElementById('form-scroll-area');
+      document.getElementById('form-title').innerText = title;
+      if (genericFormHtml) formArea.innerHTML = genericFormHtml;
+      initGenericForm(date);
+      hideLoading();
+      document.getElementById('main-screen').classList.add('hidden');
+      document.getElementById('form-screen').classList.remove('hidden');
+    })
+    .getRecordDetail(recordId, logId);
 }
 
 window.openForm = openForm;
@@ -32,9 +68,11 @@ window.openForm = openForm;
 function initGenericForm(date) {
   document.getElementById('f-date').value   = date || state.serverToday;
   document.getElementById('f-writer').value = state.user.name;
-  document.getElementById('f-temp').value   = '';
-  document.getElementById('f-memo').value   = '';
-  CHECK_ITEMS.forEach(function(item) { formState.checkData[item.key] = 'ok'; });
+  document.getElementById('f-temp').value   = formState._savedTemp || '';
+  document.getElementById('f-memo').value   = formState._savedMemo || '';
+  CHECK_ITEMS.forEach(function(item) {
+    if (!formState.checkData[item.key]) formState.checkData[item.key] = 'ok';
+  });
   renderGenericCheckItems();
 }
 
@@ -101,7 +139,8 @@ function setAllOk() {
 
 // ── 데이터 수집 라우터 ─────────────────────────────────
 function collectFormData() {
-  if (currentLogInfo.logId === 'fo01') return collectForeignBodyData();
+  if (currentLogInfo.logId === 'si0201') return collectSi0201Data();
+
 
   var data = {
     temperature: document.getElementById('f-temp').value,
@@ -124,7 +163,8 @@ function collectFormData() {
 
 // ── 검증 라우터 ────────────────────────────────────────
 function validateForm(data) {
-  if (currentLogInfo.logId === 'fo01') return validateForeignBody(data);
+  if (currentLogInfo.logId === 'si0201') return validateSi0201(data);
+
 
   if (!data.temperature && data.temperature !== 0) {
     showToast('온도를 입력해주세요!', 'error'); return false;
@@ -146,7 +186,8 @@ function validateForm(data) {
 
 // ── 부적합 요약 라우터 ─────────────────────────────────
 function getDefectSummary(data) {
-  if (currentLogInfo.logId === 'fo01') return getForeignBodyDefectSummary(data);
+  if (currentLogInfo.logId === 'si0201') return getSi0201DefectSummary(data);
+
 
   for (var i = 0; i < CHECK_ITEMS.length; i++) {
     var item = CHECK_ITEMS[i];
@@ -277,8 +318,8 @@ function viewRecord(recordId, logId, title) {
       var rec = state.records.find(function(r) { return r.recordId === recordId; });
       var html = '';
 
-      if (rec && rec.logId === 'fo01' && typeof buildForeignBodyViewHtml === 'function') {
-        html = buildForeignBodyViewHtml(rec, res.dataJson, title, res);
+      if (rec && rec.logId === 'si0201' && typeof buildSi0201ViewHtml === 'function') {
+        html = buildSi0201ViewHtml(rec, res.dataJson, title, res);
       } else {
         html = buildGenericViewHtml(rec, res.dataJson, title, res);
       }
@@ -306,6 +347,11 @@ function buildSigRowHtml(rec, sigRes) {
   var hasReviewer = rec.reviewer && rec.reviewer !== '' && rec.reviewer !== '-';
   var hasApprover = rec.approver && rec.approver !== '' && rec.approver !== '-';
 
+  // 직책 있으면 직책, 없으면 계급, 둘 다 없으면 기본 역할명
+  var writerLabel   = (sigRes && sigRes.writerTitle)   || state.user.title || state.user.rank || '작성';
+  var reviewerLabel = (sigRes && sigRes.reviewerTitle) || '검토';
+  var approverLabel = (sigRes && sigRes.approverTitle) || '승인';
+
   function sigBox(roleLabel, name, sigSrc, date) {
     var sigContent = sigSrc
       ? '<img src="' + sigSrc + '" style="max-width:100%;max-height:55px;object-fit:contain;" alt="서명" onerror="this.style.display=\'none\'">'
@@ -321,9 +367,9 @@ function buildSigRowHtml(rec, sigRes) {
   }
 
   var html = '<div class="sig-row-wrap">';
-  html += sigBox('작성', rec.writerName, writerSig, rec.date);
-  if (hasReviewer) html += sigBox('검토', rec.reviewer, reviewerSig, rec.date);
-  html += sigBox('승인', hasApprover ? rec.approver : '-', hasApprover ? approverSig : '', hasApprover ? rec.date : '');
+  html += sigBox(writerLabel, rec.writerName, writerSig, rec.date);
+  if (hasReviewer) html += sigBox(reviewerLabel, rec.reviewer, reviewerSig, rec.date);
+  html += sigBox(approverLabel, hasApprover ? rec.approver : '-', hasApprover ? approverSig : '', hasApprover ? rec.date : '');
   html += '</div>';
 
   return html;

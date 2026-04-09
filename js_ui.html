@@ -17,9 +17,21 @@ function closeModal() {
 
 // ── 내 정보 / 비밀번호 변경 ─────────────────────────────
 function openMyInfo() {
+  var roles    = state.user.factoryRoles    || {};
+  var deputies = state.user.factoryDeputies || {};
+  var roleNames = { '1': '작성자', '2': '검토자', '3': 'HACCP팀장' };
+  var roleLines = state.factories.map(function(f) {
+    var r = roles[f.id];
+    if (!r) return null;
+    var label = deputies[f.id] !== undefined ? 'HACCP팀장 대행' : (roleNames[String(r)] || r + '등급');
+    return '<li>' + f.name + ': ' + label + '</li>';
+  }).filter(Boolean).join('');
+
   openModal('내 정보',
     '<p><strong>이름:</strong> ' + state.user.name + '</p>' +
-    '<p><strong>권한:</strong> ' + state.user.role + '등급</p><hr>' +
+    '<p><strong>계급:</strong> ' + (state.user.rank || '-') + '</p>' +
+    '<p><strong>공장별 권한:</strong></p>' +
+    '<ul style="margin:5px 0 10px 20px;padding:0;">' + (roleLines || '<li>없음</li>') + '</ul><hr>' +
     '<button onclick="showChangePw()" class="btn-primary" style="margin-bottom:10px;padding:10px;">비밀번호 변경</button><br>' +
     '<button onclick="forceSignature(true)" class="btn-primary" style="padding:10px;">전자서명 재등록</button>',
     true);
@@ -120,11 +132,15 @@ function submitSignature() {
 // ── 롱프레스 / 선택 모드 ────────────────────────────────
 function startPress(e, actionType) {
   pressTimer = setTimeout(function() {
-    if (actionType === 'WRITE')       { executeBatchWrite();           return; }
-    if (actionType === 'REVIEW')      { executeBatchProcess('REVIEW'); return; }
+    if (actionType === 'WRITE')       { return; } // 작성탭 자동 일괄작성 비활성화
+    if (actionType === 'REVIEW') {
+      if (getCurrentRole() >= 3) { executeBatchProcess('APPROVE'); return; }
+      executeBatchProcess('REVIEW');
+      return;
+    }
     if (actionType === 'APPROVE')     { executeBatchProcess('APPROVE');return; }
     if (actionType === 'SELECT_MODE') {
-      if (parseInt(state.user.role) < 3) return;
+      if (getCurrentRole() < 3) return;
       state.selectMode = true; state.revokeMode = false;
       document.getElementById('batch-revoke-btn').style.display  = 'none';
       document.getElementById('batch-approve-btn').style.display = '';
@@ -132,7 +148,7 @@ function startPress(e, actionType) {
       renderDoneList();
     }
     if (actionType === 'REVOKE_MODE') {
-      if (parseInt(state.user.role) < 3) return;
+      if (getCurrentRole() < 3) return;
       state.selectMode = true; state.revokeMode = true;
       document.getElementById('batch-revoke-btn').style.display  = '';
       document.getElementById('batch-approve-btn').style.display = 'none';
@@ -172,6 +188,7 @@ function executeBatchApprove() {
   var ids = Array.from(document.querySelectorAll('.card-check:checked')).map(function(cb) { return cb.dataset.id; });
   if (!ids.length) { alert('선택된 일지가 없습니다.'); return; }
   if (!confirm(ids.length + '개를 일괄승인하시겠습니까?')) return;
+  ids.forEach(function(id) { showCardLoading(id); });
   showLoading('처리 중...');
   google.script.run
     .withSuccessHandler(function() {
@@ -180,13 +197,19 @@ function executeBatchApprove() {
       refreshRecordsBackground();
       hideLoading();
     })
-    .batchActionByIds(ids, 'APPROVE', state.user.name, state.user.role);
+    .withFailureHandler(function(e) {
+      ids.forEach(function(id) { hideCardLoading(id); });
+      hideLoading();
+      alert('일괄승인 실패: ' + (e && e.message ? e.message : '서버 오류'));
+    })
+    .batchActionByIds(ids, 'APPROVE', state.user.name, String(getCurrentRole()));
 }
 
 function executeBatchRevoke() {
   var ids = Array.from(document.querySelectorAll('.card-check:checked')).map(function(cb) { return cb.dataset.id; });
   if (!ids.length) { alert('선택된 일지가 없습니다.'); return; }
   if (!confirm(ids.length + '개의 승인을 취소하시겠습니까?')) return;
+  ids.forEach(function(id) { showCardLoading(id); });
   showLoading('처리 중...');
   google.script.run
     .withSuccessHandler(function() {
@@ -195,26 +218,64 @@ function executeBatchRevoke() {
       refreshRecordsBackground();
       hideLoading();
     })
-    .batchActionByIds(ids, 'REVOKE', state.user.name, state.user.role);
+    .withFailureHandler(function(e) {
+      ids.forEach(function(id) { hideCardLoading(id); });
+      hideLoading();
+      alert('승인취소 실패: ' + (e && e.message ? e.message : '서버 오류'));
+    })
+    .batchActionByIds(ids, 'REVOKE', state.user.name, String(getCurrentRole()));
 }
 
 function executeBatchWrite() {
-  if (!confirm('미작성된 모든 일지를 일괄 자동 작성하시겠습니까?')) return;
-  showLoading('처리 중...');
+  executeTodayCreateBatch();
+}
+
+/**
+ * 수동 버튼: 오늘 일간 일지를 작성중으로 일괄 생성
+ */
+function executeTodayCreateBatch() {
+  var factoryId = state.currentFactory || 'pb2';
+  if (!confirm('오늘 일간 일지를 작성중 상태로 일괄 생성하시겠습니까?')) return;
+
+  showLoading('오늘 일지 생성 중...');
   google.script.run
-    .withSuccessHandler(function() {
-      showToast('일괄 작성 완료!', 'success');
-      loadData();
+    .withSuccessHandler(function(res) {
+      hideLoading();
+      if (!res || !res.success) {
+        showToast('생성 실패', 'error');
+        return;
+      }
+      showToast('생성 ' + res.created + '건 / 기존 ' + res.skipped + '건', 'success');
+      refreshRecordsBackground(function() { switchTab('todo'); });
     })
-    .batchWriteAllRecords(state.user.id, state.user.name);
+    .withFailureHandler(function(e) {
+      hideLoading();
+      alert('오늘 일지 생성 실패: ' + (e && e.message ? e.message : '서버 오류'));
+    })
+    .createTodayDailyLogsBatch(factoryId, state.user.id, state.user.name);
 }
 
 function executeBatchProcess(action) {
-  var role = parseInt(state.user.role);
+  var role = getCurrentRole();
   if (action === 'REVIEW'  && role < 2) { alert('검토 권한 없음'); return; }
   if (action === 'APPROVE' && role < 3) { alert('승인 권한 없음'); return; }
+
+  // 화면에 보이는 전체 대기 대상 카드에 로딩 표시 (날짜 무관)
+  var targetIds = state.records
+    .filter(function(r) {
+      if (action === 'REVIEW') return r.status === '작성완료';
+      if (action === 'APPROVE') return r.status === '검토완료' || r.status === '작성완료';
+      return false;
+    })
+    .map(function(r) { return r.recordId; });
+  if (!targetIds.length) {
+    showToast('처리할 대상이 없습니다.', 'info');
+    return;
+  }
+
   var name = action === 'REVIEW' ? '검토완료' : '승인완료';
-  if (!confirm('오늘 대기 문서를 일괄 [' + name + '] 처리하시겠습니까?')) return;
+  if (!confirm('대기 문서를 일괄 [' + name + '] 처리하시겠습니까?')) return;
+  targetIds.forEach(function(id) { showCardLoading(id); });
   showLoading('처리 중...');
   google.script.run
     .withSuccessHandler(function() {
@@ -222,7 +283,269 @@ function executeBatchProcess(action) {
       refreshRecordsBackground();
       hideLoading();
     })
-    .batchProcessRecords(action, state.user.name, state.user.role);
+    .withFailureHandler(function(e) {
+      targetIds.forEach(function(id) { hideCardLoading(id); });
+      hideLoading();
+      alert('일괄 ' + name + ' 실패: ' + (e && e.message ? e.message : '서버 오류'));
+    })
+    .batchProcessRecords(action, state.user.name, String(getCurrentRole()));
+}
+
+// ── 사용자 관리 ────────────────────────────────────────
+var _umUsers    = [];   // 사용자 목록 캐시
+var _umFactories = [];  // 공장 목록 캐시
+var _umIsMaster = false;
+
+function openUserManagement() {
+  openModal('👥 사용자 관리', '<p style="text-align:center;padding:20px;color:#888;">불러오는 중...</p>', true);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) { alert(res.message || '오류'); return; }
+      _umUsers     = res.users;
+      _umFactories = res.factories;
+      _umIsMaster  = res.requesterIsMaster;
+      renderUserManagement();
+    })
+    .withFailureHandler(function(e) { alert('오류: ' + e.message); })
+    .getUserList(state.user.id);
+}
+
+function renderUserManagement() {
+  var html =
+    '<div style="margin-bottom:12px;font-size:12px;color:#888;">' +
+      '총 ' + _umUsers.length + '명 · ' + (_umIsMaster ? '마스터' : '팀장') + ' 권한으로 조회 중' +
+    '</div>' +
+    '<div id="um-list" style="display:flex;flex-direction:column;gap:10px;">';
+
+  _umUsers.forEach(function(u, idx) {
+    html += buildUserCard(u, idx);
+  });
+
+  html += '</div>';
+  document.getElementById('modal-body').innerHTML = html;
+  // 목록 상태에서 X는 모달 닫기
+  document.getElementById('modal-close').onclick = function() { closeModal(); };
+}
+
+function buildUserCard(u, idx) {
+  var rankOpts = ['', '사원', '주임', '대리', '과장', '차장', '부장'].map(function(r) {
+    return '<option value="' + r + '"' + (u.rank === r ? ' selected' : '') + '>' + (r || '(선택)') + '</option>';
+  }).join('');
+
+  var factoryHtml = _umFactories.map(function(f) {
+    // 팀장은 자기 공장만 수정 가능, 마스터는 전체
+    var myRole = state.user.factoryRoles ? parseInt(state.user.factoryRoles[f.id] || 0) : 0;
+    var canEdit = _umIsMaster || myRole === 3;
+    var cur = parseInt((u.factoryRoles || {})[f.id] || 0);
+    var deputy = (u.factoryDeputies || {})[f.id];
+    var isLeader = cur === 3;
+    var isDeputy = deputy ? true : false;
+    
+    var roleOpts = [0,1,2,3].map(function(r) {
+      var labels = ['없음','작성자','검토자','팀장'];
+      return '<option value="'+r+'"'+(cur===r?' selected':'')+'>'+labels[r]+'</option>';
+    }).join('');
+
+    return '<div class="um-factory-row" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">' +
+      '<span style="font-size:12px;color:#555;width:80px;flex-shrink:0;">' + f.name + '</span>' +
+      '<div class="um-factory-controls" style="flex:1;display:flex;align-items:center;gap:8px;">' +
+        (isDeputy
+          ? '<span class="um-role-label" style="font-size:12px;color:#e67e22;padding:6px 10px;border:1px solid #e67e22;border-radius:8px;">HACCP팀장 대행</span>'
+          : '<select class="um-factory-role" data-fid="' + f.id + '" style="flex:1;font-size:12px;padding:6px 8px;border:1px solid #ddd;border-radius:8px;">' + roleOpts + '</select>'
+        ) +
+        (canEdit && isLeader && !isDeputy
+          ? '<button type="button" class="um-deputy-btn" data-fid="' + f.id + '" data-leader="true" onclick="toggleDeputyRole(this)" style="padding:7px 12px;border-radius:8px;border:1px solid #3498db;background:white;color:#3498db;font-size:12px;cursor:pointer;">대행 지정</button>'
+          : (canEdit && isDeputy
+            ? '<button type="button" class="um-deputy-btn" data-fid="' + f.id + '" data-leader="true" onclick="toggleDeputyRole(this)" style="padding:7px 12px;border-radius:8px;border:1px solid #e74c3c;background:#e74c3c;color:white;font-size:12px;cursor:pointer;">대행 해제</button>'
+            : ''
+          )
+        ) +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  var masterHtml = _umIsMaster
+    ? '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">' +
+        '<label style="font-size:12px;color:#555;">마스터 계정</label>' +
+        '<input type="checkbox" class="um-is-master"' + (u.isMaster ? ' checked' : '') + ' style="width:16px;height:16px;">' +
+      '</div>'
+    : '';
+
+  return '<div style="border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;cursor:pointer;" ' +
+    'onclick="editUserCard(\'' + u.id + '\')">' +
+    // 헤더 (클릭 시 편집 모달)
+    '<div style="display:flex;align-items:center;padding:12px 14px;background:#fafafa;">' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:14px;font-weight:600;">' + u.name + '</div>' +
+        '<div style="font-size:11px;color:#999;margin-top:2px;">' + u.id +
+          (u.rank ? ' · ' + u.rank : '') +
+          (u.isMaster ? ' · <span style="color:#8e44ad;">마스터</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<span style="font-size:18px;color:#aaa;">✎</span>' +
+    '</div>' +
+  '</div>';
+}
+
+function toggleDeputyRole(btn) {
+  var row = btn.closest('.um-factory-row');
+  if (!row) return;
+  var select = row.querySelector('.um-factory-role');
+  var label  = row.querySelector('.um-role-label');
+  var isLeader = btn.dataset.leader === 'true';
+
+  if (isLeader) {
+    // 대행 활성화 → 드롭다운 숨기고 label 표시
+    btn.dataset.leader = 'true';
+    btn.textContent = '대행 해제';
+    btn.style.background = '#e74c3c';
+    btn.style.color = 'white';
+    if (select) {
+      select.style.display = 'none';
+    }
+    if (!label) {
+      label = document.createElement('span');
+      label.className = 'um-role-label';
+      label.innerText = 'HACCP팀장 대행';
+      label.style.cssText = 'font-size:12px;color:#e67e22;padding:6px 10px;border:1px solid #e67e22;border-radius:8px;';
+      row.querySelector('.um-factory-controls').insertBefore(label, btn);
+    }
+  } else {
+    // 대행 해제 → 드롭다운 표시하고 label 제거
+    btn.data.leader = 'false';
+    btn.textContent = '대행 지정';
+    btn.style.background = 'white';
+    btn.style.color = '#3498db';
+    if (select) {
+      select.style.display = 'inline-block';
+    }
+    if (label) label.remove();
+  }
+}
+
+function toggleUmCard(header) {
+  var body  = header.nextElementSibling;
+  var arrow = header.querySelector('span:last-child');
+  var open  = body.style.display !== 'none';
+  body.style.display  = open ? 'none' : 'block';
+  arrow.style.transform = open ? '' : 'rotate(90deg)';
+}
+
+function editUserCard(userId) {
+  var user = _umUsers.find(function(u) { return u.id === userId; });
+  if (!user) return;
+
+  var rankOpts = ['', '사원', '주임', '대리', '과장', '차장', '부장'].map(function(r) {
+    return '<option value="' + r + '"' + (user.rank === r ? ' selected' : '') + '>' + (r || '(선택)') + '</option>';
+  }).join('');
+
+  var factoryHtml = _umFactories.map(function(f) {
+    var myRole  = state.user.factoryRoles ? parseInt(state.user.factoryRoles[f.id] || 0) : 0;
+    var canEdit = _umIsMaster || myRole === 3;
+    var cur     = parseInt((user.factoryRoles || {})[f.id] || 0);
+    var isDeputy = (user.factoryDeputies || {})[f.id] !== undefined;
+    var curVal  = isDeputy ? 'dep' : String(cur);
+
+    var roleOpts = [
+      { val: '0',   label: '없음'    },
+      { val: '1',   label: '작성자'  },
+      { val: '2',   label: '검토자'  },
+      { val: '3',   label: '팀장'    },
+      { val: 'dep', label: '팀장대행' }
+    ].map(function(opt) {
+      var selected = curVal === opt.val ? ' selected' : '';
+      // 자기 자신은 팀장/팀장대행 선택 불가 (마스터 제외)
+      var disabled = (opt.val === '3' || opt.val === 'dep') && user.id === state.user.id && !_umIsMaster ? ' disabled' : '';
+      return '<option value="' + opt.val + '"' + selected + disabled + '>' + opt.label + '</option>';
+    }).join('');
+
+    var selectHtml = canEdit
+      ? '<select class="um-factory-role" data-fid="' + f.id + '" style="flex:1;font-size:12px;padding:6px 8px;border:1px solid #ddd;border-radius:8px;">' + roleOpts + '</select>'
+      : '<span style="font-size:12px;color:#555;padding:6px 10px;border:1px solid #eee;border-radius:8px;background:#f9f9f9;">' +
+          ({ '0':'없음','1':'작성자','2':'검토자','3':'팀장','dep':'팀장대행' }[curVal] || curVal) +
+        '</span>';
+
+    return '<div class="um-factory-row" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">' +
+      '<span style="font-size:12px;color:#555;width:80px;flex-shrink:0;">' + f.name + '</span>' +
+      '<div style="flex:1;">' + selectHtml + '</div>' +
+    '</div>';
+  }).join('');
+
+  var masterHtml = _umIsMaster
+    ? '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">' +
+        '<label style="font-size:12px;color:#555;">마스터 계정</label>' +
+        '<input type="checkbox" class="um-is-master"' + (user.isMaster ? ' checked' : '') + ' style="width:16px;height:16px;">' +
+      '</div>'
+    : '';
+
+  var html =
+    '<div style="display:flex;gap:10px;margin-bottom:10px;">' +
+      '<div style="flex:1;">' +
+        '<label style="font-size:11px;color:#888;display:block;margin-bottom:3px;">계급</label>' +
+        '<select class="um-rank" style="width:100%;font-size:13px;padding:6px 8px;border:1px solid #ddd;border-radius:8px;">' + rankOpts + '</select>' +
+      '</div>' +
+    '</div>' +
+    '<div style="margin-bottom:10px;">' +
+      '<label style="font-size:11px;color:#888;display:block;margin-bottom:6px;">공장별 권한</label>' +
+      factoryHtml +
+    '</div>' +
+    masterHtml +
+    '<button id="um-save-btn" onclick="saveUserCard(this, \'' + userId + '\')" ' +
+      'style="width:100%;margin-top:10px;padding:10px;border-radius:8px;border:none;background:#3498db;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">' +
+      '저장' +
+    '</button>';
+
+  var title = user.name + ' (' + user.id + ')' + (user.rank ? ' · ' + user.rank : '');
+  document.getElementById('modal-body').innerHTML = html;
+  document.getElementById('modal-title').innerText = '👤 ' + title;
+  // X 버튼 → 사용자관리 목록으로 복귀
+  var closeBtn = document.getElementById('modal-close');
+  closeBtn.style.display = 'block';
+  closeBtn.onclick = function() {
+    closeBtn.onclick = function() { closeModal(); }; // 목록 상태로 복원
+    renderUserManagement();
+  };
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+function saveUserCard(btn, targetId) {
+  var body = document.getElementById('modal-body'); // fix: btn.closest('.um-body') → modal-body
+
+  var newRank = body.querySelector('.um-rank').value;
+
+  // 공장별 권한 ("dep" 값 포함해서 그대로 서버로 전달)
+  var newRoles = {};
+  body.querySelectorAll('.um-factory-role').forEach(function(sel) {
+    var v = sel.value;
+    if (v !== '0') newRoles[sel.dataset.fid] = v; // "dep" 또는 숫자 문자열
+  });
+
+  // 마스터 토글
+  var masterCheck = body.querySelector('.um-is-master');
+  var newIsMaster = masterCheck ? masterCheck.checked : undefined;
+
+  var prevUser = _umUsers.find(function(u){ return u.id === targetId; });
+  var updates = {
+    rank:         newRank,
+    factoryRoles: newRoles
+  };
+  if (newIsMaster !== undefined) updates.isMaster = newIsMaster;
+
+  btn.disabled    = true;
+  btn.textContent = '저장 중...';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) { alert(res.message || '저장 실패'); btn.disabled = false; btn.textContent = '저장'; return; }
+      showToast(prevUser ? prevUser.name + ' 저장 완료' : '저장 완료', 'success');
+      // 서버 반영 후 목록 새로고침 (캐시 갱신)
+      openUserManagement();
+    })
+    .withFailureHandler(function(e) {
+      alert('오류: ' + e.message);
+      btn.disabled = false; btn.textContent = '저장';
+    })
+    .updateUserInfo(state.user.id, targetId, updates);
 }
 
 // ── 관리자 기능 ────────────────────────────────────────
@@ -261,12 +584,17 @@ function loadPostWriterLogs() {
   var selectedDate = dateEl.value;
   if (!selectedDate) { listEl.innerHTML = ''; return; }
 
-  // 해당 날짜에 이미 작성된 logId 목록
+  // 해당 날짜에 이미 생성/작성된 logId 목록 (작성중 포함, 중복 생성 방지)
+  // 현재 선택 공장 기준으로만 계산
+  var currentFactory = state.currentFactory || 'pb2';
   var doneLogIds = state.records
-    .filter(function(r) { return r.date === selectedDate && r.status !== '작성중'; })
+    .filter(function(r) { return r.date === selectedDate && (r.factoryId || 'pb2') === currentFactory; })
     .map(function(r) { return r.logId; });
 
-  var pending = state.logs.filter(function(l) { return !doneLogIds.includes(l.id); });
+  // 현재 공장에 속한 일지만 대상으로
+  var pending = state.logs
+    .filter(function(l) { return (l.factoryId || 'pb2') === currentFactory; })
+    .filter(function(l) { return !doneLogIds.includes(l.id); });
 
   if (!pending.length) {
     listEl.innerHTML = '<p style="color:#27ae60;font-size:13px;text-align:center;padding:10px;">✅ 모든 일지가 작성되어 있습니다.</p>';
@@ -316,6 +644,7 @@ function executePostCreateBatch() {
   if (!date)           { showToast('날짜를 선택해주세요.', 'error'); return; }
   if (!checked.length) { showToast('생성할 일지를 선택해주세요.', 'error'); return; }
 
+  var currentFactory = state.currentFactory || 'pb2';
   var targets = Array.from(checked).map(function(cb) {
     return { logId: cb.dataset.id, title: cb.dataset.title };
   });
@@ -329,7 +658,11 @@ function executePostCreateBatch() {
   (function next(idx) {
     if (idx >= targets.length) {
       showToast(targets.length + '건 생성 완료!', 'success');
-      loadData();
+      // 공장선택으로 튀지 않도록 전체 재로그인(loadData/checkSession) 대신 records만 갱신
+      refreshRecordsBackground(function() {
+        hideLoading();
+        switchTab('todo');
+      });
       return;
     }
     var t = targets[idx];
@@ -343,7 +676,8 @@ function executePostCreateBatch() {
         showToast(t.title + ' 생성 실패', 'error');
         next(idx + 1);
       })
-      .createNewLog(t.logId, t.title, state.user.id, state.user.name, date);
+      // 요청사항: 사후작성 생성본은 작성자/작성ID를 비워서 생성
+      .createNewLog(t.logId, t.title, '', '', date, currentFactory);
   })(0);
 }
 </script>

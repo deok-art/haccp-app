@@ -3,13 +3,13 @@
 /**
  * 새 일지 레코드 생성
  */
-function createNewLog(logId, title, writerId, writerName, targetDate) {
-  const master  = SS.getSheetByName('MasterRecords') || SS.insertSheet('MasterRecords');
-  const dateStr = targetDate || Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
-  const recordId = 'REC-' + new Date().getTime();
-  
-  // [v3.0 수정] 신규 날짜 컬럼 3개 자리 확보 (L, M, N열)
-  master.appendRow([recordId, logId, title, dateStr, writerId, writerName, '', '', '작성중', '', '', dateStr, '', '']);
+function createNewLog(logId, title, writerId, writerName, targetDate, factoryId) {
+  const master    = SS.getSheetByName('MasterRecords') || SS.insertSheet('MasterRecords');
+  const dateStr   = targetDate || Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
+  const recordId  = 'REC-' + new Date().getTime();
+  const fid       = factoryId || 'pb2';
+
+  master.appendRow([recordId, logId, title, dateStr, writerId, writerName, '', '', '작성중', '', '', dateStr, '', '', fid]);
 
   const detailSheet = SS.getSheetByName('Log_' + logId) || SS.insertSheet('Log_' + logId);
   if (detailSheet.getLastRow() === 0) {
@@ -94,7 +94,8 @@ function processRecordAction(recordId, action, userId, userName, userRole) {
       case 'REVIEW': {
         if (role < 2) return { success: false, message: '검토 권한이 없습니다.' };
         if (writerId === userId) return { success: false, message: '본인 작성 문서는 검토할 수 없습니다.' };
-        const writerRole = getUserRoleById(writerId);
+        const factoryId  = String(data[i][14] || 'pb2');
+        const writerRole = getUserRoleById(writerId, factoryId);
         if (role < 3 && parseInt(writerRole) >= 3) return { success: false, message: '상위 권한자의 문서는 검토할 수 없습니다.' };
         sheet.getRange(i + 1, 7).setValue(userName);
         sheet.getRange(i + 1, 9).setValue('검토완료');
@@ -160,7 +161,7 @@ function batchWriteAllRecords(userId, userName) {
   logs.forEach(log => {
     if (doneIds.includes(log.id)) return;
     const recordId = 'REC-' + new Date().getTime() + Math.floor(Math.random() * 1000);
-    master.appendRow([recordId, log.id, log.title, todayStr, userId, userName, '', '', '작성완료', '', '', todayStr, '', '']);
+    master.appendRow([recordId, log.id, log.title, todayStr, userId, userName, '', '', '작성완료', '', '', todayStr, '', '', log.factoryId || 'pb2']);
     const ds = SS.getSheetByName('Log_' + log.id) || SS.insertSheet('Log_' + log.id);
     if (ds.getLastRow() === 0) ds.appendRow(['RecordID', 'Date', 'Writer', 'DataJson']);
     ds.appendRow([recordId, todayStr, userName, JSON.stringify({ autoFilled: true })]);
@@ -169,7 +170,46 @@ function batchWriteAllRecords(userId, userName) {
 }
 
 /**
- * 오늘 날짜 기준 일괄 검토/승인
+ * 오늘 일간 일지를 작성중 상태로 일괄 생성 (수동 트리거용)
+ * - 현재 공장(factoryId)의 interval='일간'만 생성
+ * - 같은 날짜/공장/logId가 이미 있으면 생성하지 않음
+ */
+function createTodayDailyLogsBatch(factoryId, writerId, writerName) {
+  const fid      = factoryId || 'pb2';
+  const todayStr = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
+  const logs     = getSafeData('Logs').filter(function(l) {
+    return (l.factoryId || 'pb2') === fid && String(l.interval) === '일간';
+  });
+
+  const master = SS.getSheetByName('MasterRecords') || SS.insertSheet('MasterRecords');
+  const rows   = master.getDataRange().getValues().slice(1);
+
+  const existing = {};
+  rows.forEach(function(r) {
+    const d   = r[3] instanceof Date ? Utilities.formatDate(r[3], 'GMT+9', 'yyyy-MM-dd') : String(r[3]);
+    const lid = String(r[1] || '');
+    const rf  = String(r[14] || 'pb2');
+    if (d === todayStr && rf === fid && lid) existing[lid] = true;
+  });
+
+  let created = 0;
+  let skipped = 0;
+  logs.forEach(function(log) {
+    if (existing[log.id]) { skipped++; return; }
+    const recordId = 'REC-' + new Date().getTime() + Math.floor(Math.random() * 1000);
+    master.appendRow([recordId, log.id, log.title, todayStr, writerId || '', writerName || '', '', '', '작성중', '', '', todayStr, '', '', fid]);
+
+    const ds = SS.getSheetByName('Log_' + log.id) || SS.insertSheet('Log_' + log.id);
+    if (ds.getLastRow() === 0) ds.appendRow(['RecordID', 'Date', 'Writer', 'DataJson']);
+    ds.appendRow([recordId, todayStr, writerName || '', JSON.stringify({})]);
+    created++;
+  });
+
+  return { success: true, created: created, skipped: skipped, total: logs.length };
+}
+
+/**
+ * 날짜 무관 일괄 검토/승인
  */
 function batchProcessRecords(action, userName, userRole) {
   const role = parseInt(userRole);
@@ -178,13 +218,9 @@ function batchProcessRecords(action, userName, userRole) {
   
   const sheet    = SS.getSheetByName('MasterRecords');
   const data     = sheet.getDataRange().getValues();
-  const todayStr = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
-  const now      = todayStr;
+  const now      = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
 
   for (let i = 1; i < data.length; i++) {
-    const rowDate = data[i][3] instanceof Date ? Utilities.formatDate(data[i][3], 'GMT+9', 'yyyy-MM-dd') : String(data[i][3]);
-    if (rowDate !== todayStr) continue;
-    
     if (action === 'REVIEW'  && data[i][8] === '작성완료') {
       sheet.getRange(i + 1, 7).setValue(userName);
       sheet.getRange(i + 1, 9).setValue('검토완료');

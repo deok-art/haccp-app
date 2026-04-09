@@ -13,17 +13,44 @@ window.onerror = function(msg, url, line) {
 
 // ── 전역 상태 ──────────────────────────────────────────
 var state = {
-  user:          null,
-  settings:      {},
-  logs:          [],
-  records:       [],
-  userMeta:      {}, // [v3.0 추가] 서명 및 직책 데이터
-  currentFilter: 'all',
-  selectMode:    false,
-  revokeMode:    false,
-  serverToday:   '',
-  noticeHidden:  false
+  user:              null,
+  settings:          {},
+  logs:              [],
+  records:           [],
+  factories:         [],   // 전체 공장 목록 [{ id, name }]
+  currentFactory:    null, // 현재 선택된 공장 ID
+  userMeta:          {},
+  currentFilter:     'all',
+  selectMode:        false,
+  revokeMode:        false,
+  serverToday:       '',
+  noticeHidden:      false
 };
+
+/**
+ * 현재 공장에서의 사용자 권한 반환
+ * @returns {number} 권한 레벨 (1/2/3)
+ */
+function getCurrentRole() {
+  if (!state.user || !state.currentFactory) return 1;
+  if (state.user.isMaster) return 3;
+  var roles = state.user.factoryRoles || {};
+  return parseInt(roles[state.currentFactory] || 1);
+}
+
+/**
+ * 사용자가 접근 가능한 공장 목록 반환 (factoryRoles에 등록된 공장만)
+ * @returns {Array} [{ id, name }]
+ */
+function getAccessibleFactories() {
+  if (!state.user) return [];
+  // 마스터는 모든 공장 접근 가능
+  if (state.user.isMaster) return state.factories;
+  var roles = state.user.factoryRoles || {};
+  return state.factories.filter(function(f) {
+    return roles[f.id] && parseInt(roles[f.id]) >= 1;
+  });
+}
 
 // 폼 작성 중 임시 데이터
 var formState = {
@@ -191,9 +218,10 @@ function loadData() {
       if (!res.success) { alert('서버 오류: ' + res.message); showLoginScreen(); return; }
       state.settings    = res.settings;
       state.logs        = res.logs;
+      state.factories   = res.factories || [{ id: 'pb2', name: '2공장(PBⅡ)' }];
       state.records     = res.records;
       state.serverToday = res.serverToday;
-      state.userMeta    = res.userMeta || {}; // 직책, 서명 데이터 로드
+      state.userMeta    = res.userMeta || {};
       renderBaseUI();
       checkSession();
     })
@@ -299,25 +327,180 @@ function loginKeydown(e) { if (e.key === 'Enter') handleLogin(); }
 
 function loginSuccess(user) {
   state.user = user;
-  hideLoading();
 
-  if (parseInt(user.role) >= 3) {
-    document.getElementById('admin-post-btn').classList.remove('hidden');
+  if (user.mustChangePw) { hideLoading(); forceChangePassword(); return; }
+  if (!user.signature)   { hideLoading(); forceSignature();       return; }
+
+  // 팀장인데 현재 대행자가 있으면 복귀 팝업
+  if (user.title === 'HACCP팀장') {
+    checkAndShowReturnPopup();
+    return; // checkAndShowReturnPopup 내부에서 enterFactory 호출 후 hideLoading
   }
 
-  if (user.mustChangePw) { forceChangePassword(); return; }
-  if (!user.signature)   { forceSignature();       return; }
+  var accessible = getAccessibleFactories();
+  if (accessible.length === 0) {
+    hideLoading();
+    alert('접근 가능한 공장이 없습니다. 관리자에게 문의하세요.');
+    handleLogout();
+    return;
+  }
 
+  if (accessible.length === 1) {
+    enterFactory(accessible[0].id);
+  } else {
+    hideLoading();
+    showFactorySelectScreen(accessible);
+  }
+}
+
+/**
+ * 팀장 로그인 시 대행자 있으면 복귀 팝업 표시
+ */
+function checkAndShowReturnPopup() {
+  var roles    = state.user.factoryRoles || {};
+  var deputies = state.user.factoryDeputies || {};
+  // 대행 아닌 진짜 팀장 공장만 (대행자도 role=3이지만 factoryDeputies가 있음)
+  var myFactories = Object.keys(roles).filter(function(fid) {
+    return parseInt(roles[fid]) >= 3 && deputies[fid] === undefined;
+  });
+
+  google.script.run
+    .withSuccessHandler(function(deputies) {
+      if (deputies && deputies.length > 0) {
+        var names = deputies.map(function(d) { return d.name + ' (' + d.factoryName + ')'; }).join(', ');
+        showDeputyReturnModal(names, myFactories);
+      } else {
+        var accessible = getAccessibleFactories();
+        if (accessible.length === 1) enterFactory(accessible[0].id);
+        else showFactorySelectScreen(accessible);
+      }
+    })
+    .withFailureHandler(function() {
+      var accessible = getAccessibleFactories();
+      if (accessible.length === 1) enterFactory(accessible[0].id);
+      else showFactorySelectScreen(accessible);
+    })
+    .getDeputiesByFactories(myFactories);
+}
+
+/**
+ * 팀장 복귀 모달
+ */
+function showDeputyReturnModal(deputyNames, myFactories) {
+  hideLoading();
+  var html = '<div style="padding:20px;text-align:center;">' +
+    '<p style="margin:0 0 15px 0;font-size:14px;">현재 대행 중인 사람</p>' +
+    '<p style="margin:0 0 20px 0;font-size:13px;color:#555;font-weight:bold;">' + deputyNames + '</p>' +
+    '<p style="margin:0 0 20px 0;font-size:13px;color:#888;">팀장 권한을 복귀하시겠습니까?</p>' +
+    '<div style="display:flex;gap:10px;justify-content:center;">' +
+      '<button onclick="confirmDeputyReturn(' + myFactories.map(f => '\'' + f + '\'').join(',') + ')" ' +
+        'style="background:var(--success);color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-weight:bold;">복귀하기</button>' +
+      '<button onclick="cancelDeputyReturn()" ' +
+        'style="background:#e0e0e0;color:#333;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-weight:bold;">취소</button>' +
+    '</div>' +
+  '</div>';
+  openModal('👥 팀장 권한 복귀', html, false);
+}
+
+function confirmDeputyReturn() {
+  var myFactories = Array.from(arguments);
+  closeModal();
+  showLoading('권한 복귀 중...');
+  google.script.run
+    .withSuccessHandler(function() {
+      showToast('팀장 권한이 복귀됐습니다.', 'success');
+      var accessible = getAccessibleFactories();
+      if (accessible.length === 1) enterFactory(accessible[0].id);
+      else showFactorySelectScreen(accessible);
+    })
+    .withFailureHandler(function(e) {
+      hideLoading();
+      alert('오류: ' + e.message);
+    })
+    .clearDeputiesByFactories(myFactories);
+}
+
+function cancelDeputyReturn() {
+  closeModal();
+  var accessible = getAccessibleFactories();
+  if (accessible.length === 1) enterFactory(accessible[0].id);
+  else showFactorySelectScreen(accessible);
+}
+
+/**
+ * 공장 선택 화면 표시
+ */
+function showFactorySelectScreen(factories) {
+  hideLoading();
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('main-screen').classList.add('hidden');
+  document.getElementById('form-screen').classList.add('hidden');
+
+  var screen = document.getElementById('factory-select-screen');
+  var list   = document.getElementById('factory-select-list');
+  list.innerHTML = factories.map(function(f) {
+    return '<button class="factory-select-btn" onclick="enterFactory(\'' + f.id + '\')">' +
+             '🏭 ' + f.name +
+           '</button>';
+  }).join('');
+  screen.classList.remove('hidden');
+}
+
+/**
+ * 공장 선택 후 메인 화면 진입
+ */
+function enterFactory(factoryId) {
+  state.currentFactory = factoryId;
+
+  // 관리자 버튼: 현재 공장 권한3 이상 또는 마스터면 표시
+  var role = getCurrentRole();
+  var adminBtn = document.getElementById('admin-post-btn');
+  if (adminBtn) {
+    if (role >= 3 || state.user.isMaster) adminBtn.classList.remove('hidden');
+    else                                  adminBtn.classList.add('hidden');
+  }
+
+  // 사용자 관리 버튼: 팀장대행은 제외 (사용자관리 권한 없음)
+  var userMgmtBtn = document.getElementById('user-mgmt-btn');
+  if (userMgmtBtn) {
+    var isDeputy = state.user.factoryDeputies && Object.keys(state.user.factoryDeputies).length > 0;
+    if ((role >= 3 && !isDeputy) || state.user.isMaster) userMgmtBtn.classList.remove('hidden');
+    else                                                  userMgmtBtn.classList.add('hidden');
+  }
+
+  // 공장 전환 버튼 처리
+  var factory     = state.factories.find(function(f) { return f.id === factoryId; });
+  var factoryName = factory ? factory.name : factoryId;
+  var factoryTag  = document.getElementById('current-factory-name');
+  if (factoryTag) factoryTag.innerText = factoryName;
+
+  // 접근 가능 공장이 1개면 전환 버튼 숨김
+  var switchBtn = document.getElementById('factory-switch-btn');
+  if (switchBtn) {
+    if (getAccessibleFactories().length <= 1) switchBtn.style.display = 'none';
+    else switchBtn.style.display = '';
+  }
+
+  document.getElementById('factory-select-screen') && document.getElementById('factory-select-screen').classList.add('hidden');
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('form-screen').classList.add('hidden');
   document.getElementById('main-screen').classList.remove('hidden');
-  
-  // [v3.0 수정] 직책 이름 표시
-  var displayRank = user.rank || '담당';
-  document.getElementById('display-user').innerText = displayRank + ' ' + user.name;
+  hideLoading();
+
+  var displayRole = state.user.title === 'HACCP팀장' ? state.user.title : (state.user.rank || '담당');
+  document.getElementById('display-user').innerText = displayRole + ' ' + state.user.name;
 
   if (state.noticeHidden) document.getElementById('notice-box').style.display = 'none';
   renderLists();
+}
+
+/**
+ * 공장 전환 (상단 버튼)
+ */
+function switchFactory() {
+  var accessible = getAccessibleFactories();
+  if (accessible.length <= 1) return;
+  showFactorySelectScreen(accessible);
 }
 
 function toggleNotice() {
@@ -327,11 +510,11 @@ function toggleNotice() {
 
 // ── 공통 UI 렌더링 (로고/회사명) ───────────────────────
 function renderBaseUI() {
-  var compName = state.settings.CompanyName || 'HACCP 스마트 공장';
+  var compName = state.settings.CompanyName || '순수본 HACCP 스마트 팩토리';
   document.getElementById('factory-name-login').innerText = compName;
   document.getElementById('footer-company').innerText     = compName;
 
-  ['logo-container-login', 'logo-container-main'].forEach(function(id) {
+  ['logo-container-login', 'logo-container-factory', 'logo-container-main'].forEach(function(id) {
     var c = document.getElementById(id);
     if (!c) return;
     c.innerHTML = state.settings.Logo

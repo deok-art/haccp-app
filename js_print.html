@@ -1,0 +1,196 @@
+<script>
+// ════════════════════════════════════════════════════════
+//  js_print.html — 인쇄/PDF 선택 모달 & 프린트 오버레이
+// ════════════════════════════════════════════════════════
+
+var printState = {
+  records:  [],   // 검색된 레코드 목록
+  selected: {}    // { recordId: true }
+};
+
+// ── 인쇄 선택 모달 열기 ────────────────────────────────
+function openPrintModal() {
+  var today = state.serverToday || new Date().toISOString().slice(0, 10);
+  var html =
+    '<div style="padding:0 4px;">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">' +
+        '<div>' +
+          '<label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">시작일</label>' +
+          '<input type="date" id="print-from" value="' + today + '"' +
+            ' style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;font-size:14px;">' +
+        '</div>' +
+        '<div>' +
+          '<label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">종료일</label>' +
+          '<input type="date" id="print-to" value="' + today + '"' +
+            ' style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;font-size:14px;">' +
+        '</div>' +
+      '</div>' +
+      '<button onclick="searchPrintRecords()" class="btn-primary" style="width:100%;margin-bottom:14px;">🔍 조회</button>' +
+      '<div id="print-record-list"><p style="color:#aaa;text-align:center;padding:20px 0;">날짜를 선택하고 조회하세요.</p></div>' +
+      '<div id="print-action-bar" class="hidden" style="display:flex;gap:8px;margin-top:12px;">' +
+        '<button onclick="toggleSelectAllPrint()" id="print-select-all-btn"' +
+          ' style="flex:1;padding:10px;border-radius:8px;border:1px solid #ddd;background:#f5f5f5;cursor:pointer;font-size:13px;">전체선택</button>' +
+        '<button onclick="executePrint()"' +
+          ' style="flex:2;padding:10px;border-radius:8px;border:none;background:var(--primary);color:white;cursor:pointer;font-size:13px;font-weight:bold;">🖨 선택 인쇄</button>' +
+      '</div>' +
+    '</div>';
+
+  openModal('인쇄할 일지 선택', html);
+}
+
+// ── 레코드 조회 ────────────────────────────────────────
+function searchPrintRecords() {
+  var fromEl = document.getElementById('print-from');
+  var toEl   = document.getElementById('print-to');
+  if (!fromEl || !toEl) return;
+
+  var from = fromEl.value;
+  var to   = toEl.value;
+  if (!from || !to) { showToast('날짜를 입력해주세요.', 'error'); return; }
+  if (from > to)    { showToast('시작일이 종료일보다 늦습니다.', 'error'); return; }
+
+  var listEl   = document.getElementById('print-record-list');
+  var actionEl = document.getElementById('print-action-bar');
+  listEl.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px 0;">조회 중...</p>';
+
+  var factoryId = state.currentFactory || 'pb2';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) { showToast(res.message || '조회 실패', 'error'); return; }
+      printState.records  = (res.records || []);
+      printState.selected = {};
+      renderPrintList(listEl, actionEl);
+    })
+    .withFailureHandler(function(e) { showToast('서버 오류: ' + e.message, 'error'); })
+    .getRecordsForDateRange(factoryId, from, to);
+}
+
+// ── 레코드 목록 렌더링 ─────────────────────────────────
+function renderPrintList(listEl, actionEl) {
+  var recs = printState.records;
+  if (!recs.length) {
+    listEl.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px 0;">해당 기간 승인완료 일지가 없습니다.</p>';
+    if (actionEl) actionEl.classList.add('hidden');
+    return;
+  }
+
+  var statusLabel = { '작성중':'작성중', '작성완료':'작성완료', '검토완료':'검토완료', '승인완료':'승인완료' };
+  var statusColor = { '작성중':'var(--warning)', '작성완료':'var(--status-write)', '검토완료':'var(--status-review)', '승인완료':'var(--success)' };
+
+  var html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+  recs.forEach(function(rec) {
+    var checked = printState.selected[rec.recordId] ? 'checked' : '';
+    var color   = statusColor[rec.status] || '#888';
+    var label   = statusLabel[rec.status] || rec.status;
+    html +=
+      '<label style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid #eee;border-radius:8px;cursor:pointer;background:#fff;">' +
+        '<input type="checkbox" ' + checked + ' onchange="togglePrintSelect(\'' + rec.recordId + '\',this.checked)"' +
+          ' style="width:18px;height:18px;cursor:pointer;">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:13px;font-weight:600;color:#2c3e50;">' + rec.title + '</div>' +
+          '<div style="font-size:11px;color:#888;margin-top:2px;">' +
+            rec.date + ' · ' + rec.writerName +
+          '</div>' +
+        '</div>' +
+        '<span style="font-size:11px;font-weight:bold;color:' + color + ';white-space:nowrap;">' + label + '</span>' +
+      '</label>';
+  });
+  html += '</div>';
+
+  listEl.innerHTML = html;
+  if (actionEl) actionEl.classList.remove('hidden');
+}
+
+// ── 체크박스 토글 ──────────────────────────────────────
+function togglePrintSelect(recordId, checked) {
+  if (checked) printState.selected[recordId] = true;
+  else delete printState.selected[recordId];
+}
+
+function toggleSelectAllPrint() {
+  var recs = printState.records;
+  var allSelected = recs.every(function(r) { return printState.selected[r.recordId]; });
+  if (allSelected) {
+    printState.selected = {};
+  } else {
+    recs.forEach(function(r) { printState.selected[r.recordId] = true; });
+  }
+  // 체크박스 UI 업데이트
+  recs.forEach(function(r) {
+    var inputs = document.querySelectorAll('input[type="checkbox"]');
+    inputs.forEach(function(inp) {
+      if (inp.onchange && inp.onchange.toString().indexOf(r.recordId) !== -1) {
+        inp.checked = !!printState.selected[r.recordId];
+      }
+    });
+  });
+  // listEl 다시 렌더
+  var listEl   = document.getElementById('print-record-list');
+  var actionEl = document.getElementById('print-action-bar');
+  renderPrintList(listEl, actionEl);
+}
+
+// ── 인쇄 실행 ──────────────────────────────────────────
+function executePrint() {
+  var selectedIds = Object.keys(printState.selected);
+  if (!selectedIds.length) { showToast('인쇄할 일지를 선택해주세요.', 'error'); return; }
+
+  // 선택된 레코드 정보 가져오기
+  var selectedRecs = printState.records.filter(function(r) { return printState.selected[r.recordId]; });
+
+  closeModal();
+  showLoading('인쇄 데이터 준비 중...');
+
+  // 각 레코드 상세 순차 로드 후 출력
+  var allHtml    = [];
+  var remaining  = selectedRecs.length;
+
+  if (!remaining) { hideLoading(); return; }
+
+  selectedRecs.forEach(function(rec) {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res.success) {
+          var printHtml = '';
+          if (rec.logId === 'si0201') {
+            printHtml = buildSi0201PrintHtml(rec, res.dataJson, res);
+          }
+          allHtml.push({ date: rec.date, recordId: rec.recordId, html: printHtml });
+        }
+        remaining--;
+        if (remaining === 0) {
+          // 날짜순 정렬
+          allHtml.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+          showPrintOverlay(allHtml.map(function(h) { return h.html; }).join(''));
+        }
+      })
+      .withFailureHandler(function(e) {
+        remaining--;
+        if (remaining === 0) {
+          allHtml.sort(function(a, b) { return a.date < b.date ? -1 : 1; });
+          showPrintOverlay(allHtml.map(function(h) { return h.html; }).join(''));
+        }
+      })
+      .getRecordDetail(rec.recordId, rec.logId);
+  });
+}
+
+// ── 프린트 오버레이 표시 ───────────────────────────────
+function showPrintOverlay(contentHtml) {
+  hideLoading();
+  var overlay = document.getElementById('print-overlay');
+  var content = document.getElementById('print-overlay-content');
+  if (!overlay || !content) return;
+  content.innerHTML = contentHtml;
+  overlay.classList.remove('hidden');
+}
+
+function closePrintOverlay() {
+  var overlay = document.getElementById('print-overlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function triggerWindowPrint() {
+  window.print();
+}
+</script>
