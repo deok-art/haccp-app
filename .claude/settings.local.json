@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(clasp push:*)",
-      "Bash(grep -n \"서명\\\\|sign\\\\|signature\\\\|검토\\\\|승인\\\\|작성\" /c/dev/haccp-app/*.gs /c/dev/haccp-app/*.html)",
-      "Bash(git add:*)"
-    ]
-  }
-}
