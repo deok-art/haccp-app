@@ -78,19 +78,31 @@ function getAllPendingRecords() {
   if (!sheet) return [];
 
   const todayStr = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
+
+  // userId → role 맵 구성 (권한2가 권한3 문서 검토 차단용)
+  const usersSheet = SS.getSheetByName('Users');
+  const userRoleMap = {};
+  if (usersSheet) {
+    usersSheet.getDataRange().getValues().slice(1).forEach(u => {
+      if (u[0]) userRoleMap[String(u[0])] = String(u[3] || '1');
+    });
+  }
+
   return sheet.getDataRange().getValues().slice(1)
     .filter(r => r[0])
     .map(r => {
       let rowDate = r[3] instanceof Date
         ? Utilities.formatDate(r[3], 'GMT+9', 'yyyy-MM-dd')
         : String(r[3]);
+      const writerId = String(r[4]);
       return {
         recordId:   String(r[0]),
         logId:      String(r[1]),
         title:      String(r[2]),
         date:       rowDate,
-        writerId:   String(r[4]),
+        writerId:   writerId,
         writerName: String(r[5]),
+        writerRole: userRoleMap[writerId] || '1',
         reviewer:   String(r[6]),
         approver:   String(r[7]),
         status:     String(r[8]),
@@ -117,6 +129,20 @@ function getTodayMasterRecords(todayStr) {
       return d === todayStr;
     })
     .map(r => ({ logId: String(r[1]) }));
+}
+
+/**
+ * Users 시트에서 ID로 권한(role) 조회
+ */
+function getUserRoleById(id) {
+  if (!id) return '1';
+  const sheet = SS.getSheetByName('Users');
+  if (!sheet) return '1';
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === id) return String(data[i][3] || '1');
+  }
+  return '1';
 }
 
 /**

@@ -184,7 +184,8 @@ function buildDoneCard(rec) {
 
   // 스테퍼
   var s1 = 'step step-write';
-  var s2 = (rec.status === '검토완료' || rec.status === '승인완료') ? 'step step-review' : 'step';
+  var hasReviewer = rec.reviewer && rec.reviewer !== '' && rec.reviewer !== '-';
+  var s2 = (hasReviewer && (rec.status === '검토완료' || rec.status === '승인완료')) ? 'step step-review' : 'step';
   var s3 = rec.status === '승인완료' ? 'step step-approve' : 'step';
 
   var badgeColor = rec.status === '승인완료' ? '#27ae60'
@@ -194,8 +195,12 @@ function buildDoneCard(rec) {
   var btns = '';
   if (!state.selectMode) {
 
-    // 검토 버튼 — 권한2 이상, 작성완료 상태
-    if (role >= 2 && rec.status === '작성완료') {
+    // 검토 버튼 — 권한2 이상, 작성완료 상태, 본인 문서 제외, 권한2는 권한3 문서 검토 불가
+    var canReview = role >= 2
+      && rec.status === '작성완료'
+      && rec.writerId !== state.user.id
+      && !(role < 3 && parseInt(rec.writerRole || '1') >= 3);
+    if (canReview) {
       btns += '<button class="action-btn btn-review" onclick="doAction(\'' + rec.recordId + '\',\'REVIEW\',\'' + rec.title + '\')">검토</button>';
     }
 

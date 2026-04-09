@@ -60,25 +60,6 @@ function saveFormData(recordId, logId, dataJson, defectInfo) {
   }
 }
 
-/**
- * 레코드 상세 데이터 조회
- */
-function getRecordDetail(recordId, logId) {
-  try {
-    const sheet = SS.getSheetByName('Log_' + logId);
-    if (!sheet) return { success: false, message: '시트 없음' };
-
-    const data = sheet.getDataRange().getValues();
-    for (let i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === recordId) {
-        return { success: true, dataJson: String(data[i][3]) };
-      }
-    }
-    return { success: false, message: '데이터 없음' };
-  } catch (e) {
-    return { success: false, message: e.toString() };
-  }
-}
 
 /**
  * 단건 결재 처리 (CANCEL / REVIEW / CANCEL_REVIEW / APPROVE / REVOKE)
@@ -110,13 +91,16 @@ function processRecordAction(recordId, action, userId, userName, userRole) {
         sheet.getRange(i + 1, 13).setValue(''); // ReviewDate 초기화
         return { success: true };
 
-      case 'REVIEW':
+      case 'REVIEW': {
         if (role < 2) return { success: false, message: '검토 권한이 없습니다.' };
         if (writerId === userId) return { success: false, message: '본인 작성 문서는 검토할 수 없습니다.' };
+        const writerRole = getUserRoleById(writerId);
+        if (role < 3 && parseInt(writerRole) >= 3) return { success: false, message: '상위 권한자의 문서는 검토할 수 없습니다.' };
         sheet.getRange(i + 1, 7).setValue(userName);
         sheet.getRange(i + 1, 9).setValue('검토완료');
         sheet.getRange(i + 1, 13).setValue(now); // ReviewDate 기록
         return { success: true };
+      }
         
       case 'APPROVE':
         if (role < 3) return { success: false, message: '승인 권한이 없습니다.' };
@@ -127,8 +111,9 @@ function processRecordAction(recordId, action, userId, userName, userRole) {
         
       case 'REVOKE':
         if (role < 3) return { success: false, message: '승인취소 권한이 없습니다.' };
+        const hadReviewer = String(data[i][6] || '') !== '';
         sheet.getRange(i + 1, 8).setValue('');
-        sheet.getRange(i + 1, 9).setValue('검토완료');
+        sheet.getRange(i + 1, 9).setValue(hadReviewer ? '검토완료' : '작성완료');
         sheet.getRange(i + 1, 14).setValue(''); // ApproveDate 초기화
         return { success: true };
     }
@@ -154,8 +139,9 @@ function batchActionByIds(ids, action, userName, userRole) {
       sheet.getRange(i + 1, 14).setValue(now);
     }
     if (action === 'REVOKE' && role >= 3) {
+      const hadReviewer = String(data[i][6] || '') !== '';
       sheet.getRange(i + 1, 8).setValue('');
-      sheet.getRange(i + 1, 9).setValue('검토완료');
+      sheet.getRange(i + 1, 9).setValue(hadReviewer ? '검토완료' : '작성완료');
       sheet.getRange(i + 1, 14).setValue('');
     }
   }
