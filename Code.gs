@@ -569,15 +569,30 @@ function getUserRoleById(id, factoryId) {
 }
 
 /**
- * Users 시트에서 이름으로 서명 조회
+ * Users 시트에서 ID로 서명 조회
  */
-function getUserSignatureByName(name) {
-  if (!name) return '';
+function getUserSignatureById(userId) {
+  if (!userId) return '';
   const sheet = SS.getSheetByName('Users');
   if (!sheet) return '';
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][2]) === name) return String(data[i][4] || '');
+    if (String(data[i][0]) === String(userId)) return String(data[i][4] || '');
+  }
+  return '';
+}
+
+/**
+ * Users 시트에서 이름으로 서명 조회
+ */
+function getUserSignatureByName(name) {
+  if (!name) return '';
+  const trimmed = name.trim();
+  const sheet = SS.getSheetByName('Users');
+  if (!sheet) return '';
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][2]).trim() === trimmed) return String(data[i][4] || '');
   }
   return '';
 }
@@ -631,13 +646,15 @@ function getRecordDetail(recordId, logId) {
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][0]) !== recordId) continue;
 
-      // MasterRecords에서 검토자/승인자 이름 조회
+      // MasterRecords에서 작성자/검토자/승인자 정보 조회
       const master     = SS.getSheetByName('MasterRecords');
-      let reviewerName = '', approverName = '';
+      let writerId = '', writerName = '', reviewerName = '', approverName = '';
       if (master) {
         const mData = master.getDataRange().getValues();
         for (let j = 1; j < mData.length; j++) {
           if (String(mData[j][0]) === recordId) {
+            writerId     = String(mData[j][4] || '');
+            writerName   = String(mData[j][5] || '');
             reviewerName = String(mData[j][6] || '');
             approverName = String(mData[j][7] || '');
             break;
@@ -645,16 +662,24 @@ function getRecordDetail(recordId, logId) {
         }
       }
 
+      // 작성자 서명: ID 우선, 없으면 이름으로 폴백
+      const writerSignature = writerId
+        ? getUserSignatureById(writerId)
+        : getUserSignatureByName(writerName);
+
       return {
         success:           true,
         dataJson:          String(data[i][3]),
+        writerId:          writerId,
+        writerName:        writerName,
         reviewerName:      reviewerName,
         approverName:      approverName,
+        writerSignature:   writerSignature,
         reviewerSignature: getUserSignatureByName(reviewerName),
         approverSignature: getUserSignatureByName(approverName),
+        writerTitle:       getUserTitleByName(writerName),
         reviewerTitle:     getUserTitleByName(reviewerName),
-        approverTitle:     getUserTitleByName(approverName),
-        writerTitle:       getUserTitleByName(String(data[i][5] || ''))
+        approverTitle:     getUserTitleByName(approverName)
       };
     }
     return { success: false, message: '데이터 없음' };

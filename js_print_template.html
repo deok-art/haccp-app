@@ -1,0 +1,105 @@
+<script>
+// ════════════════════════════════════════════════════════
+//  js_print_template.html — 인쇄 공통 템플릿 함수
+//  모든 양식의 헤더·결재란·바닥글을 단일 진실 공급원으로 관리
+//
+//  사용법 (각 양식 buildXXXPrintHtml에서):
+//    1. signCols 배열 구성
+//    2. buildPrintPage(titleStr, bodyHtml, FORM_CONFIG, signCols, pageNum, totalPages) 호출
+// ════════════════════════════════════════════════════════
+
+// ── 결재란 텍스트 폰트 크기 클래스 (길이 기반 추정) ──────
+function fitApproveText(text) {
+  var v   = String(text || '-');
+  var len = v.length;
+  var cls = 'pdoc-fit-md';
+  if (len >= 18)      cls = 'pdoc-fit-xs';
+  else if (len >= 13) cls = 'pdoc-fit-sm';
+  return '<span class="pdoc-fit ' + cls + '">' + v + '</span>';
+}
+
+// ── 로고 HTML 생성 ────────────────────────────────────
+function buildPrintLogoHtml() {
+  var src = (state.settings && state.settings.Logo) ? state.settings.Logo : '';
+  return src
+    ? '<img src="' + src + '" class="pdoc-logo" alt="Company Logo" onerror="this.style.display=\'none\'">'
+    : '<span style="font-size:10pt;color:#777;">LOGO</span>';
+}
+
+// ── 결재 테이블 HTML 생성 ─────────────────────────────
+// signCols: [{ role, title, name, date, sig }, ...]
+function buildPrintApproveTable(signCols) {
+  var rolesHtml = signCols.map(function(c) {
+    return (
+      '<td class="pdoc-role-col" rowspan="4">' + c.role + '</td>' +
+      '<td class="pdoc-val-col">' + fitApproveText(c.title || '-') + '</td>'
+    );
+  }).join('');
+  var sigsHtml = signCols.map(function(c) {
+    return (
+      '<td class="pdoc-sign-col">' +
+        (c.sig ? '<img src="' + c.sig + '" alt="서명" onerror="this.style.display=\'none\'">' : '') +
+      '</td>'
+    );
+  }).join('');
+  var namesHtml = signCols.map(function(c) {
+    return '<td class="pdoc-val-col">' + fitApproveText(c.name || '-') + '</td>';
+  }).join('');
+  var datesHtml = signCols.map(function(c) {
+    return '<td class="pdoc-val-col">' + fitApproveText(c.date || '-') + '</td>';
+  }).join('');
+  return (
+    '<table class="pdoc-approve pdoc-approve-grid">' +
+      '<tr>' + rolesHtml + '</tr>' +
+      '<tr>' + sigsHtml  + '</tr>' +
+      '<tr>' + namesHtml + '</tr>' +
+      '<tr>' + datesHtml + '</tr>' +
+    '</table>'
+  );
+}
+
+// ── 헤더 HTML 생성 ────────────────────────────────────
+// titleStr: 헤더에 표시할 제목 문자열
+// signCols: [{ role, title, name, date, sig }, ...]
+function buildPrintHeader(titleStr, signCols) {
+  return (
+    '<table class="pdoc-header">' +
+      '<tr>' +
+        '<td class="pdoc-logo-cell">' + buildPrintLogoHtml() + '</td>' +
+        '<td class="pdoc-title-cell">' + (titleStr || '') + '</td>' +
+        '<td class="pdoc-approve-cell">' + buildPrintApproveTable(signCols) + '</td>' +
+      '</tr>' +
+    '</table>'
+  );
+}
+
+// ── 바닥글 HTML 생성 ─────────────────────────────────
+// config: { docNo, revision }
+function buildPrintFooter(config, pageNum, totalPages) {
+  return (
+    '<table class="pfoot-table">' +
+      '<tr>' +
+        '<td class="pfoot-cell pfoot-left">문서번호: ' + (config.docNo || '') + '</td>' +
+        '<td class="pfoot-cell pfoot-center">페이지 ' + pageNum + ' / ' + totalPages + '</td>' +
+        '<td class="pfoot-cell pfoot-right">' + (config.revision || '') + '</td>' +
+      '</tr>' +
+    '</table>'
+  );
+}
+
+// ── 완성 페이지 HTML 생성 ────────────────────────────
+// titleStr:   헤더 제목 (첫 페이지는 config.title, 부적합 페이지는 별도 지정)
+// bodyHtml:   페이지 본문 HTML
+// config:     { title, docNo, revision }
+// signCols:   [{ role, title, name, date, sig }, ...]
+// pageNum, totalPages: 페이지 번호
+function buildPrintPage(titleStr, bodyHtml, config, signCols, pageNum, totalPages) {
+  return (
+    '<div class="print-page">' +
+      buildPrintHeader(titleStr, signCols) +
+      bodyHtml +
+      buildPrintFooter(config, pageNum, totalPages) +
+    '</div>'
+  );
+}
+</script>

@@ -380,14 +380,23 @@ function getSi0201DefectSummary(data) {
   });
 }
 
+// ── SI0201 양식 설정 ──────────────────────────────────
+var SI0201_CONFIG = {
+  title:    '이물관리 점검표',
+  docNo:    'PBⅡ-SI-02-01',
+  revision: 'Rev.1'
+};
+
 // ── 인쇄용 HTML (A4 HACCP 양식) ────────────────────────
 function buildSi0201PrintHtml(rec, dataJsonStr, sigRes) {
   var data = {};
   try { data = JSON.parse(dataJsonStr); } catch(e) {}
   if (!data || !data.items) return '';
 
-  // ── 결재란 ──────────────────────────────────────────
-  var writerSig   = state.user.signature && rec.writerId === state.user.id ? state.user.signature : '';
+  // ── 결재란 데이터 구성 ───────────────────────────────
+  var writerSig   = (sigRes && sigRes.writerSignature)
+    ? sigRes.writerSignature
+    : (state.user.signature && rec.writerId === state.user.id ? state.user.signature : '');
   var reviewerSig = (sigRes && sigRes.reviewerSignature) ? sigRes.reviewerSignature : '';
   var approverSig = (sigRes && sigRes.approverSignature) ? sigRes.approverSignature : '';
   var writerLabel   = (sigRes && sigRes.writerTitle)   || state.user.title || state.user.rank || '작성';
@@ -396,72 +405,39 @@ function buildSi0201PrintHtml(rec, dataJsonStr, sigRes) {
   var hasReviewer = rec.reviewer && rec.reviewer !== '' && rec.reviewer !== '-';
   var hasApprover = rec.approver && rec.approver !== '' && rec.approver !== '-';
 
-  var signCols = [];
-  signCols.push({
-    role: '작성',
-    title: writerLabel || '-',
-    name: rec.writerName || '-',
-    date: rec.date || '-',
-    sig: writerSig || ''
-  });
-  if (hasReviewer) {
-    signCols.push({
-      role: '검토',
-      title: reviewerLabel || '-',
-      name: rec.reviewer || '-',
-      date: rec.date || '-',
-      sig: reviewerSig || ''
+  var signCols = [{ role: '작성', title: writerLabel || '-', name: rec.writerName || '-', date: rec.date || '-', sig: writerSig || '' }];
+  if (hasReviewer) signCols.push({ role: '검토', title: reviewerLabel || '-', name: rec.reviewer || '-', date: rec.date || '-', sig: reviewerSig || '' });
+  signCols.push({ role: '승인', title: approverLabel || '-', name: hasApprover ? (rec.approver || '-') : '-', date: hasApprover ? (rec.date || '-') : '-', sig: hasApprover ? (approverSig || '') : '' });
+
+  // ── 부적합 항목 수집 ─────────────────────────────────
+  var ngItems = [];
+  SI0201_GROUPS.forEach(function(grp) {
+    grp.items.forEach(function(item) {
+      var d = data.items[item.key] || {};
+      if (d.result === 'ng') ngItems.push({ grp: grp.group, item: item, d: d });
     });
-  }
-  signCols.push({
-    role: '승인',
-    title: approverLabel || '-',
-    name: hasApprover ? (rec.approver || '-') : '-',
-    date: hasApprover ? (rec.date || '-') : '-',
-    sig: hasApprover ? (approverSig || '') : ''
   });
+  var totalPages = ngItems.length ? 2 : 1;
 
-  var logoSrc = (state.settings && state.settings.Logo) ? state.settings.Logo : '';
-  var logoHtml = logoSrc
-    ? '<img src="' + logoSrc + '" class="pdoc-logo" alt="Company Logo" onerror="this.style.display=\'none\'">'
-    : '<span style="font-size:10pt;color:#777;">LOGO</span>';
-  function fitApproveText(text) {
-    var v = String(text || '-');
-    var len = v.length;
-    var cls = 'pdoc-fit-md';
-    if (len >= 18) cls = 'pdoc-fit-xs';
-    else if (len >= 13) cls = 'pdoc-fit-sm';
-    return '<span class="pdoc-fit ' + cls + '">' + v + '</span>';
-  }
-  var approveColsHtml = signCols.map(function(c) {
-    return (
-      '<td class="pdoc-role-col" rowspan="4">' + c.role + '</td>' +
-      '<td class="pdoc-val-col">' + fitApproveText(c.title || '-') + '</td>'
-    );
-  }).join('');
-  var approveSigHtml = signCols.map(function(c) {
-    return (
-      '<td class="pdoc-sign-col">' +
-        (c.sig ? '<img src="' + c.sig + '" alt="서명" onerror="this.style.display=\'none\'">' : '') +
-      '</td>'
-    );
-  }).join('');
-  var approveNameHtml = signCols.map(function(c) {
-    return '<td class="pdoc-val-col">' + fitApproveText(c.name || '-') + '</td>';
-  }).join('');
-  var approveDateHtml = signCols.map(function(c) {
-    return '<td class="pdoc-val-col">' + fitApproveText(c.date || '-') + '</td>';
-  }).join('');
-  var docApproveTable =
-    '<table class="pdoc-approve pdoc-approve-grid">' +
-      '<tr>' + approveColsHtml + '</tr>' +
-      '<tr>' + approveSigHtml + '</tr>' +
-      '<tr>' + approveNameHtml + '</tr>' +
-      '<tr>' + approveDateHtml + '</tr>' +
-    '</table>';
+  // ── 페이지 조합 ──────────────────────────────────────
+  var page1 = buildPrintPage(
+    SI0201_CONFIG.title,
+    buildSi0201BodyHtml(data, rec),
+    SI0201_CONFIG, signCols, 1, totalPages
+  );
+  var page2 = ngItems.length
+    ? buildPrintPage(
+        SI0201_CONFIG.title + ' - 부적합/개선조치',
+        buildSi0201DefectHtml(ngItems),
+        SI0201_CONFIG, signCols, 2, totalPages
+      )
+    : '';
 
-  // ── 2-column 점검표 ─────────────────────────────────
-  // 그룹 절반씩 나눠서 좌/우 컬럼
+  return page1 + page2;
+}
+
+// ── 1페이지 본문 HTML ────────────────────────────────
+function buildSi0201BodyHtml(data, rec) {
   var mid   = Math.ceil(SI0201_GROUPS.length / 2);
   var left  = SI0201_GROUPS.slice(0, mid);
   var right = SI0201_GROUPS.slice(mid);
@@ -477,130 +453,68 @@ function buildSi0201PrintHtml(rec, dataJsonStr, sigRes) {
           : '<span class="pok">○</span>';
         rows +=
           '<tr>' +
-            '<td class="pitem-sub">' + item.sub + '</td>' +
-            '<td class="pitem-desc">' + item.desc + '</td>' +
-            '<td class="pitem-result">' + res + '</td>' +
+            '<td class="pitem-sub">'    + item.sub  + '</td>' +
+            '<td class="pitem-desc">'   + item.desc + '</td>' +
+            '<td class="pitem-result">' + res       + '</td>' +
           '</tr>';
       });
     });
     return '<table class="pcheck">' + rows + '</table>';
   }
 
-  var checkTableHtml =
+  return (
+    '<table class="pinfo"><tr>' +
+      '<td class="pinfo-label">점검일자</td><td>' + rec.date + '</td>' +
+      '<td class="pinfo-label">점검자</td><td>'   + (rec.writerName || '-') + '</td>' +
+      '<td class="pinfo-label">점검위치</td><td>' + (data.location || '작업장') + '</td>' +
+      '<td class="pinfo-label">점검주기</td><td>일 1회</td>' +
+    '</tr></table>' +
+    '<div class="plegend">○ 적합 &nbsp;|&nbsp; × 부적합</div>' +
     '<div class="pcheck-wrap">' +
       buildCheckCol(left) +
       buildCheckCol(right) +
-    '</div>';
+    '</div>'
+  );
+}
 
-  // ── 부적합 항목 모음 ────────────────────────────────
-  var ngItems = [];
-  SI0201_GROUPS.forEach(function(grp) {
-    grp.items.forEach(function(item) {
-      var d = data.items[item.key] || {};
-      if (d.result === 'ng') ngItems.push({ grp: grp.group, item: item, d: d });
-    });
-  });
-
-  var defectSection = '';
-  if (ngItems.length) {
-    var defectCards = ngItems.map(function(ni) {
-      var defImg = ni.d.defectPhoto
-        ? '<img src="' + ni.d.defectPhoto + '" class="pdefect-img" onerror="this.style.display=\'none\'">'
-        : '';
-      var actImg = ni.d.actionPhoto
-        ? '<img src="' + ni.d.actionPhoto + '" class="pdefect-img" onerror="this.style.display=\'none\'">'
-        : '';
-      return (
-        '<div class="pdefect-card">' +
-          '<div class="pdefect-header">' +
-            '<span class="pdefect-grp">' + ni.grp + '</span>' +
-            '<span class="pdefect-title">' + ni.item.sub + '</span>' +
-            '<span class="pdefect-desc">' + ni.item.desc + '</span>' +
+// ── 부적합 페이지 본문 HTML ──────────────────────────
+function buildSi0201DefectHtml(ngItems) {
+  var cards = ngItems.map(function(ni) {
+    var defImg = ni.d.defectPhoto
+      ? '<img src="' + ni.d.defectPhoto + '" class="pdefect-img" onerror="this.style.display=\'none\'">'
+      : '';
+    var actImg = ni.d.actionPhoto
+      ? '<img src="' + ni.d.actionPhoto + '" class="pdefect-img" onerror="this.style.display=\'none\'">'
+      : '';
+    return (
+      '<div class="pdefect-card">' +
+        '<div class="pdefect-header">' +
+          '<span class="pdefect-grp">'   + ni.grp       + '</span>' +
+          '<span class="pdefect-title">' + ni.item.sub  + '</span>' +
+          '<span class="pdefect-desc">'  + ni.item.desc + '</span>' +
+        '</div>' +
+        '<div class="pdefect-body">' +
+          '<div class="pdefect-col">' +
+            '<div class="pdefect-label-ng">🚨 부적합 내용</div>' +
+            '<div class="pdefect-text">' + (ni.d.defectText || '-') + '</div>' +
+            defImg +
           '</div>' +
-          '<div class="pdefect-body">' +
-            '<div class="pdefect-col">' +
-              '<div class="pdefect-label-ng">🚨 부적합 내용</div>' +
-              '<div class="pdefect-text">' + (ni.d.defectText || '-') + '</div>' +
-              defImg +
-            '</div>' +
-            '<div class="pdefect-col">' +
-              '<div class="pdefect-label-act">🔧 개선조치 내용</div>' +
-              '<div class="pdefect-text">' + (ni.d.actionText || '-') + '</div>' +
-              actImg +
-            '</div>' +
+          '<div class="pdefect-col">' +
+            '<div class="pdefect-label-act">🔧 개선조치 내용</div>' +
+            '<div class="pdefect-text">' + (ni.d.actionText || '-') + '</div>' +
+            actImg +
           '</div>' +
-        '</div>'
-      );
-    }).join('');
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
 
-    defectSection =
-      '<div class="pdefect-section">' +
-        '<div class="pdefect-section-title">부적합 및 개선조치 내역 (' + ngItems.length + '건)</div>' +
-        defectCards +
-      '</div>';
-  }
-
-  // ── 전체 조합 ───────────────────────────────────────
-
-  var pageCount = defectSection ? 2 : 1;
-
-  var firstPageHtml =
-    '<div class="print-page">' +
-      '<table class="pdoc-header">' +
-        '<tr>' +
-          '<td class="pdoc-logo-cell">' + logoHtml + '</td>' +
-          '<td class="pdoc-title-cell">이물관리 점검표</td>' +
-          '<td class="pdoc-approve-cell">' + docApproveTable + '</td>' +
-        '</tr>' +
-      '</table>' +
-      // 기본정보
-      '<table class="pinfo">' +
-        '<tr>' +
-          '<td class="pinfo-label">점검일자</td><td>' + rec.date + '</td>' +
-          '<td class="pinfo-label">점검자</td><td>' + (rec.writerName || '-') + '</td>' +
-          '<td class="pinfo-label">점검위치</td><td>' + (data.location || '작업장') + '</td>' +
-          '<td class="pinfo-label">점검주기</td><td>일 1회</td>' +
-        '</tr>' +
-      '</table>' +
-
-      // 범례
-      '<div class="plegend">○ 적합 &nbsp;|&nbsp; × 부적합</div>' +
-
-      // 2-column 점검표
-      checkTableHtml +
-      '<table class="pfoot-table">' +
-        '<tr>' +
-          '<td class="pfoot-cell pfoot-left">문서번호: PBⅡ-SI-02-01</td>' +
-          '<td class="pfoot-cell pfoot-center">페이지 1 / ' + pageCount + '</td>' +
-          '<td class="pfoot-cell pfoot-right">Rev.1</td>' +
-        '</tr>' +
-      '</table>' +
-    '</div>';
-
-  // 부적합은 항상 다음 페이지로 강제
-  var secondPageHtml = '';
-  if (defectSection) {
-    secondPageHtml =
-      '<div class="print-page">' +
-        '<table class="pdoc-header">' +
-          '<tr>' +
-            '<td class="pdoc-logo-cell">' + logoHtml + '</td>' +
-            '<td class="pdoc-title-cell">이물관리 점검표 - 부적합/개선조치</td>' +
-            '<td class="pdoc-approve-cell">' + docApproveTable + '</td>' +
-          '</tr>' +
-        '</table>' +
-        defectSection +
-        '<table class="pfoot-table">' +
-          '<tr>' +
-            '<td class="pfoot-cell pfoot-left">문서번호: PBⅡ-SI-02-01</td>' +
-            '<td class="pfoot-cell pfoot-center">페이지 2 / ' + pageCount + '</td>' +
-            '<td class="pfoot-cell pfoot-right">Rev.1</td>' +
-          '</tr>' +
-        '</table>' +
-      '</div>';
-  }
-
-  return firstPageHtml + secondPageHtml;
+  return (
+    '<div class="pdefect-section">' +
+      '<div class="pdefect-section-title">부적합 및 개선조치 내역 (' + ngItems.length + '건)</div>' +
+      cards +
+    '</div>'
+  );
 }
 
 // ── 뷰어 HTML ──────────────────────────────────────────

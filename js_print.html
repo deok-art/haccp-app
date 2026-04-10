@@ -175,6 +175,21 @@ function executePrint() {
   });
 }
 
+// ── 결재란 텍스트 넘침 자동 축소 ────────────────────────
+function fitPdocApproveTextInOverlay(container) {
+  var MIN_PT = 4.5;
+  var cells = container.querySelectorAll('.pdoc-approve-grid .pdoc-val-col .pdoc-fit');
+  cells.forEach(function(span) {
+    var fs = parseFloat(window.getComputedStyle(span).fontSize) || 9;
+    // px → pt 변환 후 반복 축소
+    var ptSize = fs * 0.75;
+    while (span.scrollWidth > span.clientWidth && ptSize > MIN_PT) {
+      ptSize -= 0.5;
+      span.style.fontSize = ptSize + 'pt';
+    }
+  });
+}
+
 // ── 프린트 오버레이 표시 ───────────────────────────────
 function showPrintOverlay(contentHtml) {
   hideLoading();
@@ -183,6 +198,12 @@ function showPrintOverlay(contentHtml) {
   if (!overlay || !content) return;
   content.innerHTML = contentHtml;
   overlay.classList.remove('hidden');
+  // DOM 렌더링 후 결재란 텍스트 넘침 조정
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() {
+      fitPdocApproveTextInOverlay(content);
+    });
+  });
 }
 
 function closePrintOverlay() {
