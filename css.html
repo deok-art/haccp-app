@@ -406,14 +406,14 @@
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
-    font-size: 7.2pt;
+    font-size: 7pt;
   }
   .pdoc-approve th,
   .pdoc-approve td {
     border: 1px solid #000;
     text-align: center;
     vertical-align: middle;
-    padding: 2px 3px;
+    padding: 0;
   }
   .pdoc-approve th {
     background: #f4f4f4;
@@ -430,6 +430,71 @@
   .pdoc-approve-val { font-weight: 500; }
   .pdoc-approve-sign-cell { height: 22px; }
   .pdoc-approve-sign-cell img { max-height: 18px; max-width: 100%; object-fit: contain; }
+  .pdoc-approve-grid .pdoc-role-col {
+    width: 12%;
+    font-weight: 700;
+    letter-spacing: 0.1px;
+    background: #f7f7f7;
+    white-space: nowrap;
+    writing-mode: horizontal-tb;
+    padding: 1px 0;
+    overflow: hidden;
+  }
+  .pdoc-approve-grid .pdoc-val-col {
+    width: 21.333%;
+    padding: 1px 2px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: clip;
+  }
+  .pdoc-approve-grid .pdoc-sign-col {
+    width: 21.333%;
+    height: 28px;
+    padding: 0;
+    overflow: hidden;
+    background: #fff;
+  }
+  .pdoc-approve-grid .pdoc-sign-col img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    padding: 1px 2px;
+    box-sizing: border-box;
+  }
+  .pdoc-fit {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: clip;
+    line-height: 1.1;
+  }
+  .pdoc-fit-md { font-size: 7pt; }
+  .pdoc-fit-sm { font-size: 6.3pt; }
+  .pdoc-fit-xs { font-size: 5.7pt; }
+
+  .pfoot-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4px;
+    font-size: 8pt;
+    color: #555;
+  }
+  .pfoot-cell {
+    width: 33.3333%;
+    padding: 0;
+    border: none;
+  }
+  .pfoot-left {
+    text-align: left;
+  }
+  .pfoot-center {
+    text-align: center;
+  }
+  .pfoot-right {
+    text-align: right;
+  }
 
   /* 양식 헤더 */
   .pform-header {

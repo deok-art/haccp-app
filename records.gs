@@ -4,11 +4,24 @@
  * 새 일지 레코드 생성
  */
 function createNewLog(logId, title, writerId, writerName, targetDate, factoryId) {
-  const master    = SS.getSheetByName('MasterRecords') || SS.insertSheet('MasterRecords');
-  const dateStr   = targetDate || Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
-  const recordId  = 'REC-' + new Date().getTime();
-  const fid       = factoryId || 'pb2';
+  const master  = SS.getSheetByName('MasterRecords') || SS.insertSheet('MasterRecords');
+  const dateStr = targetDate || Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
+  const fid     = factoryId || 'pb2';
 
+  // 같은 날짜/logId/공장의 미작성 플레이스홀더가 있으면 재사용
+  const rows = master.getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    const r     = rows[i];
+    const rDate = r[3] instanceof Date ? Utilities.formatDate(r[3], 'GMT+9', 'yyyy-MM-dd') : String(r[3]);
+    if (String(r[1]) === logId && rDate === dateStr && String(r[14] || 'pb2') === fid && String(r[8]) === '미작성') {
+      master.getRange(i + 1, 5).setValue(writerId);
+      master.getRange(i + 1, 6).setValue(writerName);
+      master.getRange(i + 1, 9).setValue('작성중');
+      return { success: true, recordId: String(r[0]) };
+    }
+  }
+
+  const recordId    = 'REC-' + new Date().getTime();
   master.appendRow([recordId, logId, title, dateStr, writerId, writerName, '', '', '작성중', '', '', dateStr, '', '', fid]);
 
   const detailSheet = SS.getSheetByName('Log_' + logId) || SS.insertSheet('Log_' + logId);
@@ -174,12 +187,16 @@ function batchWriteAllRecords(userId, userName) {
  * - 현재 공장(factoryId)의 interval='일간'만 생성
  * - 같은 날짜/공장/logId가 이미 있으면 생성하지 않음
  */
-function createTodayDailyLogsBatch(factoryId, writerId, writerName) {
+function createTodayDailyLogsBatch(factoryId, writerId, writerName, forceLogIds, selectedLogIds) {
   const fid      = factoryId || 'pb2';
+  const force    = Array.isArray(forceLogIds) ? forceLogIds : [];
+  const selected = Array.isArray(selectedLogIds) && selectedLogIds.length > 0 ? selectedLogIds : null;
   const todayStr = Utilities.formatDate(new Date(), 'GMT+9', 'yyyy-MM-dd');
-  const logs     = getSafeData('Logs').filter(function(l) {
+  let   logs     = getSafeData('Logs').filter(function(l) {
     return (l.factoryId || 'pb2') === fid && String(l.interval) === '일간';
   });
+  // 선택된 일지만 처리 (클라이언트에서 선택 모달 사용 시)
+  if (selected) logs = logs.filter(function(l) { return selected.indexOf(l.id) !== -1; });
 
   const master = SS.getSheetByName('MasterRecords') || SS.insertSheet('MasterRecords');
   const rows   = master.getDataRange().getValues().slice(1);
@@ -194,18 +211,24 @@ function createTodayDailyLogsBatch(factoryId, writerId, writerName) {
 
   let created = 0;
   let skipped = 0;
+  const skippedLogs = [];
   logs.forEach(function(log) {
-    if (existing[log.id]) { skipped++; return; }
+    const shouldForce = force.indexOf(log.id) !== -1;
+    if (existing[log.id] && !shouldForce) {
+      skipped++;
+      skippedLogs.push({ id: log.id, title: log.title });
+      return;
+    }
     const recordId = 'REC-' + new Date().getTime() + Math.floor(Math.random() * 1000);
-    master.appendRow([recordId, log.id, log.title, todayStr, writerId || '', writerName || '', '', '', '작성중', '', '', todayStr, '', '', fid]);
+    master.appendRow([recordId, log.id, log.title, todayStr, '', '', '', '', '미작성', '', '', todayStr, '', '', fid]);
 
     const ds = SS.getSheetByName('Log_' + log.id) || SS.insertSheet('Log_' + log.id);
     if (ds.getLastRow() === 0) ds.appendRow(['RecordID', 'Date', 'Writer', 'DataJson']);
-    ds.appendRow([recordId, todayStr, writerName || '', JSON.stringify({})]);
+    ds.appendRow([recordId, todayStr, '', JSON.stringify({})]);
     created++;
   });
 
-  return { success: true, created: created, skipped: skipped, total: logs.length };
+  return { success: true, created: created, skipped: skipped, skippedLogs: skippedLogs, total: logs.length };
 }
 
 /**

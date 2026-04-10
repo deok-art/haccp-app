@@ -231,28 +231,93 @@ function executeBatchWrite() {
 }
 
 /**
- * 수동 버튼: 오늘 일간 일지를 작성중으로 일괄 생성
+ * 오늘 일간 일지 일괄 생성 모달 열기
  */
 function executeTodayCreateBatch() {
   var factoryId = state.currentFactory || 'pb2';
-  if (!confirm('오늘 일간 일지를 작성중 상태로 일괄 생성하시겠습니까?')) return;
+  var todayStr  = state.serverToday;
 
-  showLoading('오늘 일지 생성 중...');
+  var dailyLogs = (state.logs || []).filter(function(l) {
+    return (l.factoryId || 'pb2') === factoryId && String(l.interval) === '일간';
+  });
+  if (!dailyLogs.length) { showToast('등록된 일간 일지가 없습니다.', 'info'); return; }
+
+  var dailyLogIds     = dailyLogs.map(function(l) { return l.id; });
+  var existingLogIds  = (state.records || [])
+    .filter(function(r) {
+      return r.date === todayStr && (r.factoryId || 'pb2') === factoryId && dailyLogIds.indexOf(r.logId) !== -1;
+    })
+    .map(function(r) { return r.logId; });
+
+  var listHtml = '<div style="border:1px solid #eee;border-radius:10px;overflow:hidden;max-height:52vh;overflow-y:auto;">';
+  dailyLogs.forEach(function(log, idx) {
+    var isExisting = existingLogIds.indexOf(log.id) !== -1;
+    var border = idx > 0 ? 'border-top:1px solid #f0f0f0;' : '';
+    var badge  = isExisting
+      ? '<span style="margin-left:auto;font-size:10px;padding:2px 7px;border-radius:10px;background:#fff3cd;color:#856404;white-space:nowrap;">이미 존재</span>'
+      : '<span style="margin-left:auto;font-size:10px;padding:2px 7px;border-radius:10px;background:#d4edda;color:#155724;white-space:nowrap;">신규</span>';
+    listHtml +=
+      '<label style="display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;' + border + '">' +
+        '<input type="checkbox" class="today-log-check" data-id="' + log.id + '" data-existing="' + isExisting + '" ' +
+          'style="width:18px;height:18px;cursor:pointer;"' + (isExisting ? '' : ' checked') + '>' +
+        '<span style="font-size:14px;">' + log.title + '</span>' +
+        badge +
+      '</label>';
+  });
+  listHtml += '</div>';
+
+  var html =
+    '<p style="font-size:12px;color:#666;margin:0 0 10px;">오늘(' + todayStr + ') 기준으로 생성할 일지를 선택하세요.</p>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+      '<span style="font-size:12px;color:#666;">일간 일지 ' + dailyLogs.length + '건 / 기존 ' + existingLogIds.length + '건</span>' +
+      '<button onclick="toggleTodaySelectAll()" id="today-select-all-btn" ' +
+        'style="font-size:12px;padding:5px 10px;border-radius:6px;border:1px solid #ddd;background:white;cursor:pointer;">전체선택</button>' +
+    '</div>' +
+    listHtml +
+    '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;">' +
+      '<button onclick="closeModal()" style="padding:8px 16px;border:1px solid #ddd;border-radius:8px;background:white;cursor:pointer;">취소</button>' +
+      '<button onclick="doTodayCreateBatch()" class="btn-primary">✔ 생성</button>' +
+    '</div>';
+
+  openModal('📋 오늘 일지 일괄 생성', html, true);
+}
+
+function toggleTodaySelectAll() {
+  var checkboxes = document.querySelectorAll('.today-log-check');
+  var allChecked = Array.from(checkboxes).every(function(cb) { return cb.checked; });
+  checkboxes.forEach(function(cb) { cb.checked = !allChecked; });
+  var btn = document.getElementById('today-select-all-btn');
+  if (btn) btn.innerText = allChecked ? '전체선택' : '전체해제';
+}
+
+function doTodayCreateBatch() {
+  var checked = document.querySelectorAll('.today-log-check:checked');
+  if (!checked.length) { showToast('생성할 일지를 선택해주세요.', 'error'); return; }
+
+  var factoryId   = state.currentFactory || 'pb2';
+  var selectedIds = [];
+  var forceIds    = [];
+  Array.from(checked).forEach(function(cb) {
+    selectedIds.push(cb.dataset.id);
+    if (cb.dataset.existing === 'true') forceIds.push(cb.dataset.id);
+  });
+
+  if (forceIds.length > 0 && !confirm('⚠️ 이미 존재하는 일지 ' + forceIds.length + '건도 중복 생성됩니다.\n계속하시겠습니까?')) return;
+
+  closeModal();
+  showLoading('생성 중...');
   google.script.run
     .withSuccessHandler(function(res) {
       hideLoading();
-      if (!res || !res.success) {
-        showToast('생성 실패', 'error');
-        return;
-      }
-      showToast('생성 ' + res.created + '건 / 기존 ' + res.skipped + '건', 'success');
+      if (!res || !res.success) { showToast('생성 실패', 'error'); return; }
+      showToast(selectedIds.length + '건 생성 완료', 'success');
       refreshRecordsBackground(function() { switchTab('todo'); });
     })
     .withFailureHandler(function(e) {
       hideLoading();
-      alert('오늘 일지 생성 실패: ' + (e && e.message ? e.message : '서버 오류'));
+      alert('일지 생성 실패: ' + (e && e.message ? e.message : '서버 오류'));
     })
-    .createTodayDailyLogsBatch(factoryId, state.user.id, state.user.name);
+    .createTodayDailyLogsBatch(factoryId, '', '', forceIds, selectedIds);
 }
 
 function executeBatchProcess(action) {

@@ -425,22 +425,39 @@ function buildSi0201PrintHtml(rec, dataJsonStr, sigRes) {
   var logoHtml = logoSrc
     ? '<img src="' + logoSrc + '" class="pdoc-logo" alt="Company Logo" onerror="this.style.display=\'none\'">'
     : '<span style="font-size:10pt;color:#777;">LOGO</span>';
-  var roleHeadHtml = signCols.map(function(c) { return '<th>' + c.role + '</th>'; }).join('');
-  var titleRowHtml = signCols.map(function(c) { return '<td class="pdoc-approve-val">' + (c.title || '-') + '</td>'; }).join('');
-  var nameRowHtml  = signCols.map(function(c) { return '<td class="pdoc-approve-val">' + (c.name || '-') + '</td>'; }).join('');
-  var dateRowHtml  = signCols.map(function(c) { return '<td class="pdoc-approve-val">' + (c.date || '-') + '</td>'; }).join('');
-  var sigRowHtml   = signCols.map(function(c) {
-    return '<td class="pdoc-approve-sign-cell">' +
-      (c.sig ? '<img src="' + c.sig + '" alt="서명" onerror="this.style.display=\'none\'">' : '') +
-    '</td>';
+  function fitApproveText(text) {
+    var v = String(text || '-');
+    var len = v.length;
+    var cls = 'pdoc-fit-md';
+    if (len >= 18) cls = 'pdoc-fit-xs';
+    else if (len >= 13) cls = 'pdoc-fit-sm';
+    return '<span class="pdoc-fit ' + cls + '">' + v + '</span>';
+  }
+  var approveColsHtml = signCols.map(function(c) {
+    return (
+      '<td class="pdoc-role-col" rowspan="4">' + c.role + '</td>' +
+      '<td class="pdoc-val-col">' + fitApproveText(c.title || '-') + '</td>'
+    );
+  }).join('');
+  var approveSigHtml = signCols.map(function(c) {
+    return (
+      '<td class="pdoc-sign-col">' +
+        (c.sig ? '<img src="' + c.sig + '" alt="서명" onerror="this.style.display=\'none\'">' : '') +
+      '</td>'
+    );
+  }).join('');
+  var approveNameHtml = signCols.map(function(c) {
+    return '<td class="pdoc-val-col">' + fitApproveText(c.name || '-') + '</td>';
+  }).join('');
+  var approveDateHtml = signCols.map(function(c) {
+    return '<td class="pdoc-val-col">' + fitApproveText(c.date || '-') + '</td>';
   }).join('');
   var docApproveTable =
-    '<table class="pdoc-approve">' +
-      '<tr><td class="pdoc-approve-label">결재</td>' + roleHeadHtml + '</tr>' +
-      '<tr><td class="pdoc-approve-label">직책</td>' + titleRowHtml + '</tr>' +
-      '<tr><td class="pdoc-approve-label">작성자</td>' + nameRowHtml + '</tr>' +
-      '<tr><td class="pdoc-approve-label">작성일</td>' + dateRowHtml + '</tr>' +
-      '<tr><td class="pdoc-approve-label">서명</td>' + sigRowHtml + '</tr>' +
+    '<table class="pdoc-approve pdoc-approve-grid">' +
+      '<tr>' + approveColsHtml + '</tr>' +
+      '<tr>' + approveSigHtml + '</tr>' +
+      '<tr>' + approveNameHtml + '</tr>' +
+      '<tr>' + approveDateHtml + '</tr>' +
     '</table>';
 
   // ── 2-column 점검표 ─────────────────────────────────
@@ -525,6 +542,8 @@ function buildSi0201PrintHtml(rec, dataJsonStr, sigRes) {
 
   // ── 전체 조합 ───────────────────────────────────────
 
+  var pageCount = defectSection ? 2 : 1;
+
   var firstPageHtml =
     '<div class="print-page">' +
       '<table class="pdoc-header">' +
@@ -534,17 +553,6 @@ function buildSi0201PrintHtml(rec, dataJsonStr, sigRes) {
           '<td class="pdoc-approve-cell">' + docApproveTable + '</td>' +
         '</tr>' +
       '</table>' +
-      '<table class="pform-header">' +
-        '<tr>' +
-          '<td class="pform-meta-label">문서번호</td>' +
-          '<td class="pform-meta-val">PBⅡ-SI-02-01</td>' +
-          '<td class="pform-meta-label">개정번호</td>' +
-          '<td class="pform-meta-val">1.0</td>' +
-          '<td class="pform-meta-label">발행일자</td>' +
-          '<td class="pform-meta-val">' + rec.date + '</td>' +
-        '</tr>' +
-      '</table>' +
-
       // 기본정보
       '<table class="pinfo">' +
         '<tr>' +
@@ -560,6 +568,13 @@ function buildSi0201PrintHtml(rec, dataJsonStr, sigRes) {
 
       // 2-column 점검표
       checkTableHtml +
+      '<table class="pfoot-table">' +
+        '<tr>' +
+          '<td class="pfoot-cell pfoot-left">문서번호: PBⅡ-SI-02-01</td>' +
+          '<td class="pfoot-cell pfoot-center">페이지 1 / ' + pageCount + '</td>' +
+          '<td class="pfoot-cell pfoot-right">Rev.1</td>' +
+        '</tr>' +
+      '</table>' +
     '</div>';
 
   // 부적합은 항상 다음 페이지로 강제
@@ -575,6 +590,13 @@ function buildSi0201PrintHtml(rec, dataJsonStr, sigRes) {
           '</tr>' +
         '</table>' +
         defectSection +
+        '<table class="pfoot-table">' +
+          '<tr>' +
+            '<td class="pfoot-cell pfoot-left">문서번호: PBⅡ-SI-02-01</td>' +
+            '<td class="pfoot-cell pfoot-center">페이지 2 / ' + pageCount + '</td>' +
+            '<td class="pfoot-cell pfoot-right">Rev.1</td>' +
+          '</tr>' +
+        '</table>' +
       '</div>';
   }
 
