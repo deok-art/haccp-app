@@ -49,539 +49,118 @@
 <script>
 // ════════════════════════════════════════════════════════
 //  log_si0201.html — 이물관리 점검표 (PBⅡ-SI-02-01)
+//  렌더링/데이터 처리는 js_form_engine.html에 위임
 // ════════════════════════════════════════════════════════
 
-var SI0201_GROUPS = [
-  { group: '공통', items: [
-    { key: 'c_hygiene',  sub: '위생복',    desc: '앞치마·토시 등 이물 발생 확인' },
-    { key: 'c_pest',     sub: '방충·방서', desc: '포충등·트랩 이상 여부' },
-    { key: 'c_equip',    sub: '설비/도구', desc: '작업·청소도구 파손 여부' },
-    { key: 'c_clean',    sub: '위생점검',  desc: 'Clean time 2회/일 실시 여부' }
-  ]},
-  { group: '입고', items: [
-    { key: 'in_exterior', sub: '외관',     desc: '이물 및 외포장 상태 확인' },
-    { key: 'in_equip',    sub: '작업설비', desc: '파렛트 파손 여부 확인' },
-    { key: 'in_etc',      sub: '기타',     desc: '외부 출입 도크 밀폐 여부' }
-  ]},
-  { group: '보관', items: [
-    { key: 'st_cold', sub: '냉장·냉동보관', desc: '이물 혼입 여부 확인' },
-    { key: 'st_tool', sub: '도구',          desc: '이동도구·파렛트 파손 여부' }
-  ]},
-  { group: '해동', items: [
-    { key: 'th_raw',   sub: '원재료',   desc: '외포장 이물 제거 확인' },
-    { key: 'th_equip', sub: '설비/도구', desc: '고주파해동기 청결·파손 확인' }
-  ]},
-  { group: '방혈', items: [
-    { key: 'bl_raw',   sub: '원재료',   desc: '내포장 청결·이물 확인' },
-    { key: 'bl_equip', sub: '설비/도구', desc: '해동 대차 청결·파손 확인' }
-  ]},
-  { group: '전처리', items: [
-    { key: 'pr_raw',  sub: '원재료', desc: '비가식부·이물 제거 확인' },
-    { key: 'pr_pack', sub: '포장재', desc: '내포장재 조각·이물 유입 확인' }
-  ]},
-  { group: '자숙', items: [
-    { key: 'bo_raw',   sub: '원재료',   desc: '이물 유입·작업환경 확인' },
-    { key: 'bo_equip', sub: '설비/도구', desc: '자숙탱크 청결·파손 확인' }
-  ]},
-  { group: '파쇄', items: [
-    { key: 'cr_raw',   sub: '원재료',   desc: '규격·이물 유입 확인' },
-    { key: 'cr_equip', sub: '설비/도구', desc: '파쇄기 청결·파손 확인' }
-  ]},
-  { group: '(소스)계량', items: [
-    { key: 'sm_sub',   sub: '부재료',   desc: '이물 유입·작업환경 확인' },
-    { key: 'sm_equip', sub: '설비/도구', desc: '자숙탱크 청결·파손 확인' }
-  ]},
-  { group: '(소스)배합/가열', items: [
-    { key: 'sh_sub',   sub: '부재료',   desc: '이물 유입·작업환경 확인' },
-    { key: 'sh_equip', sub: '설비/도구', desc: '배합탱크 청결·파손 확인' }
-  ]},
-  { group: '내포장', items: [
-    { key: 'ip_raw',    sub: '원재료',   desc: '충진 이물·작업환경 확인' },
-    { key: 'ip_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
-    { key: 'ip_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' },
-    { key: 'ip_pack',   sub: '포장재',   desc: '파손·이물 유입 확인' }
-  ]},
-  { group: 'X-ray 검출', items: [
-    { key: 'xr_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
-    { key: 'xr_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
-  ]},
-  { group: '중량선별', items: [
-    { key: 'ws_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
-    { key: 'ws_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
-  ]},
-  { group: '멸균/살균', items: [
-    { key: 'st2_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
-    { key: 'st2_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
-  ]},
-  { group: '제수', items: [
-    { key: 'dr_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
-    { key: 'dr_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
-  ]},
-  { group: '외포장', items: [
-    { key: 'op_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
-    { key: 'op_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
-  ]},
-  { group: '완제품보관', items: [
-    { key: 'fp_product', sub: '완제품',   desc: '구획·식별·적재 기준 확인' },
-    { key: 'fp_env',     sub: '환경',     desc: '보관기준(온도·청결) 확인' },
-    { key: 'fp_equip',   sub: '설비/도구', desc: '파렛트 파손·청결 확인' }
-  ]},
-  { group: '출하', items: [
-    { key: 'sh2_equip', sub: '설비/도구', desc: '운반기구·차량 청결상태 확인' },
-    { key: 'sh2_pack',  sub: '포장재',    desc: '포장재 파손 여부 확인' }
-  ]}
-];
+var SI0201_CONFIG = {
+  formId:   'si0201',
+  title:    '이물관리 점검표',
+  docNo:    'PBⅡ-SI-02-01',
+  revision: 'Rev.1',
+  period:   '일 1회',
+  location: '작업장',
+  groups: [
+    { group: '공통', items: [
+      { key: 'c_hygiene',  sub: '위생복',    desc: '앞치마·토시 등 이물 발생 확인' },
+      { key: 'c_pest',     sub: '방충·방서', desc: '포충등·트랩 이상 여부' },
+      { key: 'c_equip',    sub: '설비/도구', desc: '작업·청소도구 파손 여부' },
+      { key: 'c_clean',    sub: '위생점검',  desc: 'Clean time 2회/일 실시 여부' }
+    ]},
+    { group: '입고', items: [
+      { key: 'in_exterior', sub: '외관',     desc: '이물 및 외포장 상태 확인' },
+      { key: 'in_equip',    sub: '작업설비', desc: '파렛트 파손 여부 확인' },
+      { key: 'in_etc',      sub: '기타',     desc: '외부 출입 도크 밀폐 여부' }
+    ]},
+    { group: '보관', items: [
+      { key: 'st_cold', sub: '냉장·냉동보관', desc: '이물 혼입 여부 확인' },
+      { key: 'st_tool', sub: '도구',          desc: '이동도구·파렛트 파손 여부' }
+    ]},
+    { group: '해동', items: [
+      { key: 'th_raw',   sub: '원재료',    desc: '외포장 이물 제거 확인' },
+      { key: 'th_equip', sub: '설비/도구', desc: '고주파해동기 청결·파손 확인' }
+    ]},
+    { group: '방혈', items: [
+      { key: 'bl_raw',   sub: '원재료',    desc: '내포장 청결·이물 확인' },
+      { key: 'bl_equip', sub: '설비/도구', desc: '해동 대차 청결·파손 확인' }
+    ]},
+    { group: '전처리', items: [
+      { key: 'pr_raw',  sub: '원재료', desc: '비가식부·이물 제거 확인' },
+      { key: 'pr_pack', sub: '포장재', desc: '내포장재 조각·이물 유입 확인' }
+    ]},
+    { group: '자숙', items: [
+      { key: 'bo_raw',   sub: '원재료',    desc: '이물 유입·작업환경 확인' },
+      { key: 'bo_equip', sub: '설비/도구', desc: '자숙탱크 청결·파손 확인' }
+    ]},
+    { group: '파쇄', items: [
+      { key: 'cr_raw',   sub: '원재료',    desc: '규격·이물 유입 확인' },
+      { key: 'cr_equip', sub: '설비/도구', desc: '파쇄기 청결·파손 확인' }
+    ]},
+    { group: '(소스)계량', items: [
+      { key: 'sm_sub',   sub: '부재료',    desc: '이물 유입·작업환경 확인' },
+      { key: 'sm_equip', sub: '설비/도구', desc: '자숙탱크 청결·파손 확인' }
+    ]},
+    { group: '(소스)배합/가열', items: [
+      { key: 'sh_sub',   sub: '부재료',    desc: '이물 유입·작업환경 확인' },
+      { key: 'sh_equip', sub: '설비/도구', desc: '배합탱크 청결·파손 확인' }
+    ]},
+    { group: '내포장', items: [
+      { key: 'ip_raw',    sub: '원재료',    desc: '충진 이물·작업환경 확인' },
+      { key: 'ip_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
+      { key: 'ip_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' },
+      { key: 'ip_pack',   sub: '포장재',    desc: '파손·이물 유입 확인' }
+    ]},
+    { group: 'X-ray 검출', items: [
+      { key: 'xr_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
+      { key: 'xr_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
+    ]},
+    { group: '중량선별', items: [
+      { key: 'ws_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
+      { key: 'ws_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
+    ]},
+    { group: '멸균/살균', items: [
+      { key: 'st2_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
+      { key: 'st2_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
+    ]},
+    { group: '제수', items: [
+      { key: 'dr_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
+      { key: 'dr_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
+    ]},
+    { group: '외포장', items: [
+      { key: 'op_equip1', sub: '설비/도구', desc: '내·외부 이물제거 청소상태' },
+      { key: 'op_equip2', sub: '설비/도구', desc: '정상작동·부식·마모 여부' }
+    ]},
+    { group: '완제품보관', items: [
+      { key: 'fp_product', sub: '완제품',    desc: '구획·식별·적재 기준 확인' },
+      { key: 'fp_env',     sub: '환경',      desc: '보관기준(온도·청결) 확인' },
+      { key: 'fp_equip',   sub: '설비/도구', desc: '파렛트 파손·청결 확인' }
+    ]},
+    { group: '출하', items: [
+      { key: 'sh2_equip', sub: '설비/도구', desc: '운반기구·차량 청결상태 확인' },
+      { key: 'sh2_pack',  sub: '포장재',    desc: '포장재 파손 여부 확인' }
+    ]}
+  ]
+};
 
 // ── 폼 초기화 ──────────────────────────────────────────
 function initSi0201Form(date, savedJson) {
+  var saved = {};
+  try { if (savedJson) saved = JSON.parse(savedJson); } catch(e) {}
   document.getElementById('si0201-date').value     = date || state.serverToday;
   document.getElementById('si0201-writer').value   = state.user.name;
-  document.getElementById('si0201-location').value = '작업장';
-  document.getElementById('si0201-period').value   = '일 1회';
-
-  var saved = {};
-  if (savedJson) { try { saved = JSON.parse(savedJson); } catch(e) {} }
-
-  SI0201_GROUPS.forEach(function(grp) {
-    grp.items.forEach(function(item) {
-      var s = (saved.items || {})[item.key] || {};
-      formState.checkData[item.key]    = s.result       || 'ok';
-      formState.defectTexts[item.key]  = s.defectText   || '';
-      formState.actionTexts[item.key]  = s.actionText   || '';
-      formState.defectPhotos[item.key] = s.defectPhoto  || '';
-      formState.actionPhotos[item.key] = s.actionPhoto  || '';
-    });
-  });
-  if (saved.location) document.getElementById('si0201-location').value = saved.location;
-
-  renderSi0201Groups();
+  document.getElementById('si0201-location').value = saved.location || SI0201_CONFIG.location;
+  document.getElementById('si0201-period').value   = SI0201_CONFIG.period;
+  initFormEngine(SI0201_CONFIG, 'si0201-groups-container', savedJson);
 }
 
-// ── 그룹 렌더링 ────────────────────────────────────────
-function renderSi0201Groups() {
-  var container = document.getElementById('si0201-groups-container');
-  if (!container) return;
-  container.innerHTML = '';
-
-  SI0201_GROUPS.forEach(function(grp) {
-    var groupEl = document.createElement('div');
-    groupEl.style.cssText = 'border:1px solid #e0e0e0;border-radius:10px;margin-bottom:10px;overflow:hidden;';
-
-    var header = document.createElement('div');
-    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#f5f7fa;cursor:pointer;';
-    header.innerHTML =
-      '<span style="font-size:13px;font-weight:600;color:#333;">' + grp.group + '</span>' +
-      '<span class="si0201-arrow" style="font-size:12px;color:#aaa;transition:transform 0.2s;">▼</span>';
-    header.onclick = function() { toggleSi0201Group(header); };
-
-    var body = document.createElement('div');
-    body.style.cssText = 'padding:10px 12px;';
-
-    grp.items.forEach(function(item) {
-      body.appendChild(buildSi0201ItemEl(item));
-    });
-
-    groupEl.appendChild(header);
-    groupEl.appendChild(body);
-    container.appendChild(groupEl);
-  });
-}
-
-// ── 항목 엘리먼트 생성 ─────────────────────────────────
-function buildSi0201ItemEl(item) {
-  var isNg        = formState.checkData[item.key] === 'ng';
-  var defectText  = formState.defectTexts[item.key]  || '';
-  var actionText  = formState.actionTexts[item.key]  || '';
-  var defectPhoto = formState.defectPhotos[item.key] || '';
-  var actionPhoto = formState.actionPhotos[item.key] || '';
-
-  var el = document.createElement('div');
-  el.id  = 'si0201-item-' + item.key;
-  el.style.cssText = 'margin-bottom:10px;padding:10px;border:1px solid #eee;border-radius:8px;transition:border-color 0.2s;';
-
-  // 항목 헤더 + 토글 버튼
-  el.innerHTML =
-    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
-      '<div style="flex:1;min-width:0;">' +
-        '<span style="font-size:13px;font-weight:600;">' + item.sub + '</span>' +
-        '<span style="font-size:11px;color:#888;margin-left:6px;">' + item.desc + '</span>' +
-      '</div>' +
-      '<div style="display:flex;gap:6px;flex-shrink:0;">' +
-        '<button class="toggle-btn ok' + (!isNg ? ' selected' : '') + '" id="si0201-ok-' + item.key +
-          '" onclick="selectSi0201Result(\'' + item.key + '\',\'ok\')"' +
-          ' style="padding:7px 14px;border-radius:8px;border:1px solid #ddd;cursor:pointer;font-size:13px;white-space:nowrap;">○ 적합</button>' +
-        '<button class="toggle-btn ng' + (isNg ? ' selected' : '') + '" id="si0201-ng-' + item.key +
-          '" onclick="selectSi0201Result(\'' + item.key + '\',\'ng\')"' +
-          ' style="padding:7px 14px;border-radius:8px;border:1px solid #ddd;cursor:pointer;font-size:13px;white-space:nowrap;">× 부적합</button>' +
-      '</div>' +
-    '</div>' +
-
-    // 부적합 상세 입력 영역
-    '<div id="si0201-ng-area-' + item.key + '"' + (!isNg ? ' class="hidden"' : '') +
-      ' style="background:#fff8f8;border:1px solid #fdd;border-radius:8px;padding:10px;margin-top:4px;">' +
-
-      // 부적합 내용
-      '<div style="margin-bottom:10px;">' +
-        '<label style="font-size:11px;font-weight:700;color:#e74c3c;display:block;margin-bottom:4px;">🚨 부적합 내용 <span style="color:#e74c3c;">*</span></label>' +
-        '<textarea id="si0201-defect-text-' + item.key + '"' +
-          ' placeholder="부적합 내용을 상세히 기록해주세요."' +
-          ' style="width:100%;padding:8px;border:1px solid #fbb;border-radius:6px;font-size:13px;resize:vertical;min-height:60px;box-sizing:border-box;font-family:inherit;">' +
-          defectText + '</textarea>' +
-      '</div>' +
-
-      // 부적합 사진
-      '<div style="margin-bottom:12px;">' +
-        '<label style="font-size:11px;font-weight:700;color:#e74c3c;display:block;margin-bottom:6px;">📷 부적합 사진 <span style="font-weight:400;color:#999;">(선택)</span></label>' +
-        '<div id="defect-photo-preview-' + item.key + '" style="margin-bottom:6px;">' +
-          (defectPhoto ? '<img src="' + defectPhoto + '" style="max-width:100%;max-height:160px;border-radius:6px;display:block;">' : '') +
-        '</div>' +
-        '<div class="photo-row">' +
-          '<button type="button" class="photo-add-btn" onclick="triggerPhoto(\'defect\',\'' + item.key + '\',\'camera\')"><span>📷</span>카메라</button>' +
-          '<button type="button" class="photo-add-btn gallery-btn" onclick="triggerPhoto(\'defect\',\'' + item.key + '\',\'gallery\')"><span>🖼</span>갤러리</button>' +
-        '</div>' +
-        '<input type="file" accept="image/*" capture="environment"' +
-          ' id="photo-input-defect-camera-' + item.key + '" style="display:none;"' +
-          ' onchange="handlePhoto(\'defect\',\'' + item.key + '\',this,\'' + item.sub + '_부적합\')">' +
-        '<input type="file" accept="image/*"' +
-          ' id="photo-input-defect-gallery-' + item.key + '" style="display:none;"' +
-          ' onchange="handlePhoto(\'defect\',\'' + item.key + '\',this,\'' + item.sub + '_부적합\')">' +
-      '</div>' +
-
-      // 개선조치 내용
-      '<div style="margin-bottom:10px;">' +
-        '<label style="font-size:11px;font-weight:700;color:#2980b9;display:block;margin-bottom:4px;">🔧 개선조치 내용 <span style="color:#e74c3c;">*</span></label>' +
-        '<textarea id="si0201-action-text-' + item.key + '"' +
-          ' placeholder="취한 조치 내용을 기록해주세요."' +
-          ' style="width:100%;padding:8px;border:1px solid #aed6f1;border-radius:6px;font-size:13px;resize:vertical;min-height:60px;box-sizing:border-box;font-family:inherit;">' +
-          actionText + '</textarea>' +
-      '</div>' +
-
-      // 개선조치 사진
-      '<div>' +
-        '<label style="font-size:11px;font-weight:700;color:#2980b9;display:block;margin-bottom:6px;">📷 개선조치 사진 <span style="font-weight:400;color:#999;">(선택)</span></label>' +
-        '<div id="action-photo-preview-' + item.key + '" style="margin-bottom:6px;">' +
-          (actionPhoto ? '<img src="' + actionPhoto + '" style="max-width:100%;max-height:160px;border-radius:6px;display:block;">' : '') +
-        '</div>' +
-        '<div class="photo-row">' +
-          '<button type="button" class="photo-add-btn" onclick="triggerPhoto(\'action\',\'' + item.key + '\',\'camera\')"><span>📷</span>카메라</button>' +
-          '<button type="button" class="photo-add-btn gallery-btn" onclick="triggerPhoto(\'action\',\'' + item.key + '\',\'gallery\')"><span>🖼</span>갤러리</button>' +
-        '</div>' +
-        '<input type="file" accept="image/*" capture="environment"' +
-          ' id="photo-input-action-camera-' + item.key + '" style="display:none;"' +
-          ' onchange="handlePhoto(\'action\',\'' + item.key + '\',this,\'' + item.sub + '_조치\')">' +
-        '<input type="file" accept="image/*"' +
-          ' id="photo-input-action-gallery-' + item.key + '" style="display:none;"' +
-          ' onchange="handlePhoto(\'action\',\'' + item.key + '\',this,\'' + item.sub + '_조치\')">' +
-      '</div>' +
-    '</div>';
-
-  return el;
-}
-
-// ── 그룹 접기/펼치기 ───────────────────────────────────
-function toggleSi0201Group(header) {
-  var body  = header.nextElementSibling;
-  var arrow = header.querySelector('.si0201-arrow');
-  var open  = body.style.display !== 'none';
-  body.style.display    = open ? 'none' : '';
-  arrow.style.transform = open ? 'rotate(-90deg)' : '';
-}
-
-// ── 적합/부적합 선택 ───────────────────────────────────
-function selectSi0201Result(key, result) {
-  formState.checkData[key] = result;
-  document.getElementById('si0201-ok-' + key).classList.toggle('selected', result === 'ok');
-  document.getElementById('si0201-ng-' + key).classList.toggle('selected', result === 'ng');
-
-  var itemEl  = document.getElementById('si0201-item-' + key);
-  var ngArea  = document.getElementById('si0201-ng-area-' + key);
-  if (!ngArea) return;
-
-  if (result === 'ng') {
-    ngArea.classList.remove('hidden');
-    itemEl.style.borderColor = '#e74c3c';
-    var dtEl = document.getElementById('si0201-defect-text-' + key);
-    if (dtEl) dtEl.focus();
-  } else {
-    ngArea.classList.add('hidden');
-    itemEl.style.borderColor = '#eee';
-  }
-}
-
-// ── 전체 적합 ──────────────────────────────────────────
-function setAllSi0201Ok() {
-  SI0201_GROUPS.forEach(function(grp) {
-    grp.items.forEach(function(item) { selectSi0201Result(item.key, 'ok'); });
-  });
-  showToast('전체 항목을 적합으로 설정했습니다.', 'success');
-}
-
-// ── 데이터 수집 ────────────────────────────────────────
+// ── 래퍼 함수 (엔진 위임) ─────────────────────────────
+function setAllSi0201Ok()             { setAllFormOk(SI0201_CONFIG); }
 function collectSi0201Data() {
-  var items = {};
-  SI0201_GROUPS.forEach(function(grp) {
-    grp.items.forEach(function(item) {
-      var dtEl = document.getElementById('si0201-defect-text-' + item.key);
-      var atEl = document.getElementById('si0201-action-text-' + item.key);
-      items[item.key] = {
-        result:      formState.checkData[item.key] || 'ok',
-        defectText:  dtEl ? dtEl.value : '',
-        actionText:  atEl ? atEl.value : '',
-        defectPhoto: formState.defectPhotos[item.key] || '',
-        actionPhoto: formState.actionPhotos[item.key] || ''
-      };
-    });
-  });
-  return {
-    location: (document.getElementById('si0201-location') || {}).value || '작업장',
-    items:    items
-  };
+  var data = collectFormData(SI0201_CONFIG);
+  data.location = (document.getElementById('si0201-location') || {}).value || SI0201_CONFIG.location;
+  return data;
 }
-
-// ── 검증 ───────────────────────────────────────────────
-function validateSi0201(data) {
-  var allItems = [];
-  SI0201_GROUPS.forEach(function(grp) { grp.items.forEach(function(i) { allItems.push(i); }); });
-
-  for (var i = 0; i < allItems.length; i++) {
-    var item = allItems[i];
-    var d    = data.items[item.key] || {};
-    if (d.result === 'ng') {
-      if (!d.defectText || !d.defectText.trim()) {
-        showToast('[' + item.sub + '] 부적합 내용을 입력해주세요!', 'error');
-        var el = document.getElementById('si0201-defect-text-' + item.key);
-        if (el) el.focus();
-        return false;
-      }
-      if (!d.actionText || !d.actionText.trim()) {
-        showToast('[' + item.sub + '] 개선조치 내용을 입력해주세요!', 'error');
-        var el2 = document.getElementById('si0201-action-text-' + item.key);
-        if (el2) el2.focus();
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-// ── 부적합 요약 ────────────────────────────────────────
-function getSi0201DefectSummary(data) {
-  var allItems = [];
-  SI0201_GROUPS.forEach(function(grp) { grp.items.forEach(function(i) { allItems.push(i); }); });
-  var ngItems = allItems.filter(function(item) { return (data.items[item.key] || {}).result === 'ng'; });
-  if (!ngItems.length) return '';
-  var first = ngItems[0];
-  var d     = data.items[first.key] || {};
-  return JSON.stringify({
-    item:    ngItems.length > 1 ? '[' + first.sub + '] ' + first.desc + ' 외 ' + (ngItems.length-1) + '건'
-                                : '[' + first.sub + '] ' + first.desc,
-    content: d.defectText || '',
-    action:  d.actionText || ''
-  });
-}
-
-// ── SI0201 양식 설정 ──────────────────────────────────
-var SI0201_CONFIG = {
-  title:    '이물관리 점검표',
-  docNo:    'PBⅡ-SI-02-01',
-  revision: 'Rev.1'
-};
-
-// ── 인쇄용 HTML (A4 HACCP 양식) ────────────────────────
-function buildSi0201PrintHtml(rec, dataJsonStr, sigRes) {
-  var data = {};
-  try { data = JSON.parse(dataJsonStr); } catch(e) {}
-  if (!data || !data.items) return '';
-
-  // ── 결재란 데이터 구성 ───────────────────────────────
-  var writerSig   = (sigRes && sigRes.writerSignature)
-    ? sigRes.writerSignature
-    : (state.user.signature && rec.writerId === state.user.id ? state.user.signature : '');
-  var reviewerSig = (sigRes && sigRes.reviewerSignature) ? sigRes.reviewerSignature : '';
-  var approverSig = (sigRes && sigRes.approverSignature) ? sigRes.approverSignature : '';
-  var writerLabel   = (sigRes && sigRes.writerTitle)   || state.user.title || state.user.rank || '작성';
-  var reviewerLabel = (sigRes && sigRes.reviewerTitle) || '검토';
-  var approverLabel = (sigRes && sigRes.approverTitle) || '승인';
-  var hasReviewer = rec.reviewer && rec.reviewer !== '' && rec.reviewer !== '-';
-  var hasApprover = rec.approver && rec.approver !== '' && rec.approver !== '-';
-
-  var signCols = [{ role: '작성', title: writerLabel || '-', name: rec.writerName || '-', date: rec.date || '-', sig: writerSig || '' }];
-  if (hasReviewer) signCols.push({ role: '검토', title: reviewerLabel || '-', name: rec.reviewer || '-', date: rec.date || '-', sig: reviewerSig || '' });
-  signCols.push({ role: '승인', title: approverLabel || '-', name: hasApprover ? (rec.approver || '-') : '-', date: hasApprover ? (rec.date || '-') : '-', sig: hasApprover ? (approverSig || '') : '' });
-
-  // ── 부적합 항목 수집 ─────────────────────────────────
-  var ngItems = [];
-  SI0201_GROUPS.forEach(function(grp) {
-    grp.items.forEach(function(item) {
-      var d = data.items[item.key] || {};
-      if (d.result === 'ng') ngItems.push({ grp: grp.group, item: item, d: d });
-    });
-  });
-  var totalPages = ngItems.length ? 2 : 1;
-
-  // ── 페이지 조합 ──────────────────────────────────────
-  var page1 = buildPrintPage(
-    SI0201_CONFIG.title,
-    buildSi0201BodyHtml(data, rec),
-    SI0201_CONFIG, signCols, 1, totalPages
-  );
-  var page2 = ngItems.length
-    ? buildPrintPage(
-        SI0201_CONFIG.title + ' - 부적합/개선조치',
-        buildSi0201DefectHtml(ngItems),
-        SI0201_CONFIG, signCols, 2, totalPages
-      )
-    : '';
-
-  return page1 + page2;
-}
-
-// ── 1페이지 본문 HTML ────────────────────────────────
-function buildSi0201BodyHtml(data, rec) {
-  var mid   = Math.ceil(SI0201_GROUPS.length / 2);
-  var left  = SI0201_GROUPS.slice(0, mid);
-  var right = SI0201_GROUPS.slice(mid);
-
-  function buildCheckCol(groups) {
-    var rows = '';
-    groups.forEach(function(grp) {
-      rows += '<tr class="pgrp-header"><td colspan="3">' + grp.group + '</td></tr>';
-      grp.items.forEach(function(item) {
-        var d   = data.items[item.key] || {};
-        var res = d.result === 'ng'
-          ? '<span class="png">×</span>'
-          : '<span class="pok">○</span>';
-        rows +=
-          '<tr>' +
-            '<td class="pitem-sub">'    + item.sub  + '</td>' +
-            '<td class="pitem-desc">'   + item.desc + '</td>' +
-            '<td class="pitem-result">' + res       + '</td>' +
-          '</tr>';
-      });
-    });
-    return '<table class="pcheck">' + rows + '</table>';
-  }
-
-  return (
-    '<table class="pinfo"><tr>' +
-      '<td class="pinfo-label">점검일자</td><td>' + rec.date + '</td>' +
-      '<td class="pinfo-label">점검자</td><td>'   + (rec.writerName || '-') + '</td>' +
-      '<td class="pinfo-label">점검위치</td><td>' + (data.location || '작업장') + '</td>' +
-      '<td class="pinfo-label">점검주기</td><td>일 1회</td>' +
-    '</tr></table>' +
-    '<div class="plegend">○ 적합 &nbsp;|&nbsp; × 부적합</div>' +
-    '<div class="pcheck-wrap">' +
-      buildCheckCol(left) +
-      buildCheckCol(right) +
-    '</div>'
-  );
-}
-
-// ── 부적합 페이지 본문 HTML ──────────────────────────
-function buildSi0201DefectHtml(ngItems) {
-  var cards = ngItems.map(function(ni) {
-    var defImg = ni.d.defectPhoto
-      ? '<img src="' + ni.d.defectPhoto + '" class="pdefect-img" onerror="this.style.display=\'none\'">'
-      : '';
-    var actImg = ni.d.actionPhoto
-      ? '<img src="' + ni.d.actionPhoto + '" class="pdefect-img" onerror="this.style.display=\'none\'">'
-      : '';
-    return (
-      '<div class="pdefect-card">' +
-        '<div class="pdefect-header">' +
-          '<span class="pdefect-grp">'   + ni.grp       + '</span>' +
-          '<span class="pdefect-title">' + ni.item.sub  + '</span>' +
-          '<span class="pdefect-desc">'  + ni.item.desc + '</span>' +
-        '</div>' +
-        '<div class="pdefect-body">' +
-          '<div class="pdefect-col">' +
-            '<div class="pdefect-label-ng">🚨 부적합 내용</div>' +
-            '<div class="pdefect-text">' + (ni.d.defectText || '-') + '</div>' +
-            defImg +
-          '</div>' +
-          '<div class="pdefect-col">' +
-            '<div class="pdefect-label-act">🔧 개선조치 내용</div>' +
-            '<div class="pdefect-text">' + (ni.d.actionText || '-') + '</div>' +
-            actImg +
-          '</div>' +
-        '</div>' +
-      '</div>'
-    );
-  }).join('');
-
-  return (
-    '<div class="pdefect-section">' +
-      '<div class="pdefect-section-title">부적합 및 개선조치 내역 (' + ngItems.length + '건)</div>' +
-      cards +
-    '</div>'
-  );
-}
-
-// ── 뷰어 HTML ──────────────────────────────────────────
-function buildSi0201ViewHtml(rec, dataJsonStr, title, sigRes) {
-  var data = {};
-  try { data = JSON.parse(dataJsonStr); } catch(e) {}
-  if (!data || !data.items) return '<p style="color:#999;text-align:center;padding:20px;">작성된 내용이 없습니다.</p>';
-
-  var groupHtml = SI0201_GROUPS.map(function(grp) {
-    var rows = grp.items.map(function(item) {
-      var d          = data.items[item.key] || {};
-      var isNg       = d.result === 'ng';
-      var resultHtml = isNg
-        ? '<span class="result-ng">× 부적합</span>'
-        : '<span class="result-ok">○ 적합</span>';
-
-      var ngDetail = '';
-      if (isNg) {
-        var defPhotoHtml = d.defectPhoto
-          ? '<img src="' + d.defectPhoto + '" style="max-width:100%;max-height:120px;border-radius:4px;margin-top:4px;display:block;">'
-          : '';
-        var actPhotoHtml = d.actionPhoto
-          ? '<img src="' + d.actionPhoto + '" style="max-width:100%;max-height:120px;border-radius:4px;margin-top:4px;display:block;">'
-          : '';
-        ngDetail =
-          '<tr><td colspan="2" style="padding:0 10px 10px 20px;background:#fff8f8;">' +
-            '<div style="border-left:3px solid #e74c3c;padding-left:10px;margin-bottom:8px;">' +
-              '<div style="font-size:11px;font-weight:700;color:#e74c3c;margin-bottom:2px;">🚨 부적합 내용</div>' +
-              '<div style="font-size:12px;">' + (d.defectText || '-') + '</div>' +
-              defPhotoHtml +
-            '</div>' +
-            '<div style="border-left:3px solid #2980b9;padding-left:10px;">' +
-              '<div style="font-size:11px;font-weight:700;color:#2980b9;margin-bottom:2px;">🔧 개선조치 내용</div>' +
-              '<div style="font-size:12px;">' + (d.actionText || '-') + '</div>' +
-              actPhotoHtml +
-            '</div>' +
-          '</td></tr>';
-      }
-
-      return '<tr>' +
-        '<td style="padding:8px 10px;">' +
-          '<span style="font-size:13px;font-weight:600;">' + item.sub + '</span>' +
-          '<span style="color:#888;font-size:11px;margin-left:6px;">' + item.desc + '</span>' +
-        '</td>' +
-        '<td style="text-align:center;padding:8px;white-space:nowrap;">' + resultHtml + '</td>' +
-      '</tr>' + ngDetail;
-    }).join('');
-
-    return '<tr><td colspan="2" style="background:#f5f7fa;padding:7px 10px;font-size:12px;font-weight:700;color:#444;">' +
-      grp.group + '</td></tr>' + rows;
-  }).join('');
-
-  return '<div class="view-form-wrap">' +
-    '<table class="view-header-table">' +
-      '<tr><td class="label">문서명</td><td>' + title + '</td>' +
-          '<td class="label">점검일</td><td>' + (rec.date || '-') + '</td></tr>' +
-      '<tr><td class="label">점검자</td><td>' + (rec.writerName || '-') + '</td>' +
-          '<td class="label">점검위치</td><td>' + (data.location || '작업장') + '</td></tr>' +
-    '</table>' +
-    '<table class="view-check-table" style="margin-top:12px;">' +
-      '<thead><tr>' +
-        '<th style="text-align:left;padding:8px 10px;">점검 항목</th>' +
-        '<th style="width:80px;">결과</th>' +
-      '</tr></thead>' +
-      '<tbody>' + groupHtml + '</tbody>' +
-    '</table>' +
-    buildSigRowHtml(rec, sigRes) +
-  '</div>';
-}
+function validateSi0201(data)         { return validateFormData(data, SI0201_CONFIG); }
+function getSi0201DefectSummary(data) { return getFormDefectSummary(data, SI0201_CONFIG); }
+function buildSi0201PrintHtml(r,j,s)  { return buildFormPrintHtml(r, j, s, SI0201_CONFIG); }
+function buildSi0201ViewHtml(r,j,t,s) { return buildFormViewHtml(r, j, t, s, SI0201_CONFIG); }
 </script>

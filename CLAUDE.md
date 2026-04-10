@@ -73,6 +73,36 @@ log_[양식번호소문자 하이픈제거].html
 - 기준 양식: log_si0201.html — 구조, 함수 패턴, 네이밍 규칙 모두 이 파일 기준
 - 공장별 완전 독립 운영 (데이터 공유 없음)
 
+### 폼 엔진 사용 규칙
+적합/부적합 체크리스트 양식은 반드시 `js_form_engine.html`의 공통 엔진을 사용한다.
+각 양식 파일에는 CONFIG 상수와 얇은 래퍼 함수만 둔다.
+
+**FORM_CONFIG 필수 구조:**
+```js
+var SI0XXX_CONFIG = {
+  formId:   'si0xxx',       // 양식 고유 ID (소문자, 하이픈 제거)
+  title:    '양식 이름',
+  docNo:    'PBⅡ-SI-XX-XX',
+  revision: 'Rev.1',
+  period:   '점검 주기',
+  location: '기본 점검 위치',
+  groups: [
+    { group: '그룹명', items: [{ key: 'unique_key', sub: '항목명', desc: '점검 내용' }] }
+  ]
+};
+```
+
+**래퍼 함수 패턴 (log_si0201.html 참고):**
+- `initXxxForm(date, savedJson)` → `initFormEngine(CONFIG, 'containerId', savedJson)` 호출
+- `setAllXxxOk()` → `setAllFormOk(CONFIG)` 위임
+- `collectXxxData()` → `collectFormData(CONFIG)` + 추가 필드(location 등) 병합
+- `validateXxx(data)` → `validateFormData(data, CONFIG)` 위임
+- `getXxxDefectSummary(data)` → `getFormDefectSummary(data, CONFIG)` 위임
+- `buildXxxPrintHtml(r,j,s)` → `buildFormPrintHtml(r, j, s, CONFIG)` 위임
+- `buildXxxViewHtml(r,j,t,s)` → `buildFormViewHtml(r, j, t, s, CONFIG)` 위임
+
+온도 기록 등 양식별 특수 필드는 FORM_CONFIG 외부에 별도 처리한다.
+
 ## 시트 구조 변경 규칙
 코드 변경으로 인해 Google Sheets 구조 수정이 필요한 경우 (새 컬럼 추가, 시트 생성, 기존 데이터 마이그레이션 등):
 1. Code.gs에 `setup[기능명]()` 형태의 마이그레이션 함수를 작성한다

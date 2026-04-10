@@ -12,14 +12,16 @@ GAS 프로젝트 (공장별 독립 운영)
 │   └── photo.gs      사진 드라이브 저장
 │
 ├── [프론트엔드 공통]
-│   ├── index.html      HTML 뼈대 (include 순서 관리)
-│   ├── css.html        전체 스타일
-│   ├── js_core.html    전역 state, IndexedDB, 초기화, 인증/세션
-│   ├── js_render.html  todo/done 목록 렌더링, 카드 빌드
-│   ├── js_form.html    폼 라우팅, 수집·검증·제출, 뷰어
-│   ├── js_ui.html      모달, 서명, 배치처리, 관리자 기능
-│   ├── js_photo.html   사진 업로드, 이미지 편집
-│   └── js_print.html   인쇄/PDF 출력
+│   ├── index.html           HTML 뼈대 (include 순서 관리)
+│   ├── css.html             전체 스타일
+│   ├── js_core.html         전역 state, IndexedDB, 초기화, 인증/세션
+│   ├── js_render.html       todo/done 목록 렌더링, 카드 빌드
+│   ├── js_form.html         폼 라우팅, 수집·검증·제출, 뷰어
+│   ├── js_ui.html           모달, 서명, 배치처리, 관리자 기능
+│   ├── js_photo.html        사진 업로드, 이미지 편집
+│   ├── js_form_engine.html  적합/부적합 체크리스트 폼 공통 엔진 (렌더링·수집·인쇄·뷰어)
+│   ├── js_print_template.html  인쇄 헤더·결재란·바닥글 공통 빌더
+│   └── js_print.html        인쇄/PDF 출력
 │
 └── [일지별 파일] — 네이밍: log_[양식번호소문자 하이픈제거].html
     └── log_si0201.html  이물관리 점검표 (PBⅡ-SI-02-01) ← 기준 양식
@@ -49,6 +51,8 @@ GAS 프로젝트 (공장별 독립 운영)
 ## 새 일지 추가 방법
 
 > **기준 양식**: `log_si0201.html` — 이 파일의 구조와 함수 패턴을 그대로 따를 것.
+>
+> **엔진 활용**: 렌더링·수집·인쇄·뷰어는 `js_form_engine.html`이 처리한다. 각 양식 파일은 `FORM_CONFIG`와 얇은 래퍼 함수 7개만 작성하면 된다.
 
 ### Step 1. 일지 파일 생성
 
@@ -73,31 +77,45 @@ GAS 프로젝트 (공장별 독립 운영)
 
 ```html
 <script type="text/template" id="tpl-{logId}">
-  <!-- 폼 화면에 삽입될 HTML -->
   <div class="form-section">
     <h3>1. 점검 기본 정보</h3>
-    <!-- 점검일자, 점검자 (readonly), 추가 헤더 필드들 -->
-    <input type="text" id="{logId}-date" readonly ...>
-    <input type="text" id="{logId}-writer" readonly ...>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">점검일자</label>
+        <input type="text" id="{logId}-date" readonly
+          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#f5f5f5;">
+      </div>
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">점검자</label>
+        <input type="text" id="{logId}-writer" readonly
+          style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#f5f5f5;">
+      </div>
+      <!-- 추가 헤더 필드가 있으면 여기에 -->
+    </div>
+    <div style="font-size:11px;color:#888;padding:6px 10px;background:#fffbea;border-radius:6px;border:1px solid #ffe082;">
+      범례: ○ 적합 &nbsp;|&nbsp; × 부적합
+    </div>
   </div>
 
   <div class="form-section">
-    <h3>2. [점검 섹션명]</h3>
-    <!-- "전체 적합" 버튼 -->
-    <button onclick="setAll{Prefix}Ok()" class="btn-all-ok">✔ 전체 적합</button>
-    <!-- 점검 항목 컨테이너 -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 style="margin:0;">2. [점검 섹션명]</h3>
+      <button type="button" onclick="setAll{Prefix}Ok()" class="btn-all-ok"
+        style="padding:8px 12px;border-radius:8px;border:none;background:#f39c12;color:white;font-weight:bold;cursor:pointer;">
+        ✔ 전체 적합
+      </button>
+    </div>
+    <!-- 엔진이 여기에 점검 항목을 렌더링한다 -->
     <div id="{logId}-groups-container"></div>
   </div>
 </script>
 ```
 
 **DOM id 네이밍 규칙**: 모든 id에 반드시 `{logId}-` 접두사를 붙인다.
-- `{logId}-date`, `{logId}-writer`, `{logId}-groups-container`
-- 항목별: `{logId}-item-{key}`, `{logId}-ok-{key}`, `{logId}-ng-{key}`, `{logId}-ng-area-{key}`
-- 텍스트: `{logId}-defect-text-{key}`, `{logId}-action-text-{key}`
-- 사진: `defect-photo-preview-{key}`, `action-photo-preview-{key}`
-- 사진 input: `photo-input-defect-camera-{key}`, `photo-input-defect-gallery-{key}`
-- 사진 input: `photo-input-action-camera-{key}`, `photo-input-action-gallery-{key}`
+- 필수: `{logId}-date`, `{logId}-writer`, `{logId}-groups-container`
+- 추가 헤더 필드 예시: `{logId}-location`, `{logId}-period`
+
+항목별 id는 `js_form_engine.html`이 자동 생성하므로 직접 작성하지 않는다.
 
 ---
 
@@ -105,148 +123,61 @@ GAS 프로젝트 (공장별 독립 운영)
 
 **함수명 접두사**: logId를 PascalCase로 변환. 예: `si0202` → `Si0202`
 
-```javascript
-// ════════════════════════════════════════════════════════
-//  log_si0202.html — [일지명] ([문서번호])
-// ════════════════════════════════════════════════════════
-```
+##### 2-1. FORM_CONFIG 정의
 
-##### 2-1. 점검항목 데이터
+모든 양식 설정과 점검항목을 하나의 객체에 담는다.
 
-그룹 구조가 있는 경우 (si0201 방식):
 ```javascript
-var SI0202_GROUPS = [
-  { group: '그룹명', items: [
-    { key: 'unique_key', sub: '소분류명', desc: '점검 내용 설명' },
+var SI0202_CONFIG = {
+  formId:   'si0202',              // logId와 동일
+  title:    '[일지명]',
+  docNo:    'PBⅡ-XX-XX',
+  revision: 'Rev.1',
+  period:   '일 1회',             // 점검주기 (헤더 표시용)
+  location: '작업장',             // 기본 점검위치 (헤더 표시용, 불필요하면 생략)
+  groups: [
+    { group: '그룹명', items: [
+      { key: 'unique_key', sub: '소분류명', desc: '점검 내용 설명' },
+      // ...
+    ]},
     // ...
-  ]},
-  // ...
-];
+  ]
+};
 ```
 
-그룹 없이 단순 목록인 경우:
-```javascript
-var SI0202_ITEMS = [
-  { key: 'unique_key', label: '항목명' },
-  // ...
-];
-```
+**key 네이밍**: 영문 소문자 + 언더스코어, 파일 내 유일해야 함.
 
-**key 네이밍**: 영문 소문자 + 언더스코어, 파일 내 유일해야 함. (다른 양식과 겹쳐도 무방 — 각 logId별 독립 DOM)
+##### 2-2. 래퍼 함수 7개
 
----
-
-##### 2-2. 필수 함수 목록 (10개)
-
-모든 양식은 아래 함수를 반드시 구현한다.
-
-| 함수 | 역할 | 호출 위치 |
-|---|---|---|
-| `init{Prefix}Form(date, savedJson)` | 폼 초기화, 저장 데이터 복원 | `js_form.html > openForm()` |
-| `render{Prefix}Groups()` | 점검 항목 DOM 렌더링 | `init{Prefix}Form` 내부 |
-| `build{Prefix}ItemEl(item)` | 항목 1개 엘리먼트 생성 | `render{Prefix}Groups` 내부 |
-| `toggle{Prefix}Group(header)` | 그룹 접기/펼치기 | 그룹 헤더 onclick |
-| `select{Prefix}Result(key, result)` | 적합/부적합 선택 → DOM 업데이트 | 토글 버튼 onclick |
-| `setAll{Prefix}Ok()` | 전체 항목 적합 처리 | "전체 적합" 버튼 onclick |
-| `collect{Prefix}Data()` | 폼 → JSON 수집 | `js_form.html > collectFormData()` |
-| `validate{Prefix}(data)` | 부적합 시 필수 입력 검증 | `js_form.html > validateForm()` |
-| `get{Prefix}DefectSummary(data)` | 부적합 요약 JSON 문자열 반환 | `js_form.html > getDefectSummary()` |
-| `build{Prefix}ViewHtml(rec, dataJsonStr, title, sigRes)` | 뷰어 모달 HTML 생성 | `js_form.html > viewRecord()` |
-| `build{Prefix}PrintHtml(rec, dataJsonStr, sigRes)` | 인쇄용 A4 HTML 생성 | `js_print.html` |
-
-> 그룹이 없는 단순 목록 양식은 `render{Prefix}Groups`와 `toggle{Prefix}Group` 생략 가능.
-
----
-
-##### 2-3. 데이터 저장 구조 (collectData 반환값)
+엔진 함수를 그대로 위임하는 얇은 래퍼다. 아래 패턴을 그대로 복사하고 `Si0202` / `si0202` / `SI0202_CONFIG`만 교체한다.
 
 ```javascript
-// 그룹 구조 양식
-{
-  location: '작업장',   // 추가 헤더 필드 (필요한 것만)
-  items: {
-    '{key}': {
-      result:      'ok' | 'ng',
-      defectText:  '',
-      actionText:  '',
-      defectPhoto: '',   // base64 or Drive URL
-      actionPhoto: ''
-    },
-    // ...
-  }
-}
-```
-
-**formState 활용**:
-- `formState.checkData[key]` — 현재 결과값 ('ok'|'ng')
-- `formState.defectTexts[key]` — 부적합 내용
-- `formState.actionTexts[key]` — 개선조치 내용
-- `formState.defectPhotos[key]` — 부적합 사진
-- `formState.actionPhotos[key]` — 조치 사진
-
----
-
-##### 2-4. 초기화 함수 패턴
-
-```javascript
-function init{Prefix}Form(date, savedJson) {
-  // 1. 헤더 필드 세팅
-  document.getElementById('{logId}-date').value   = date || state.serverToday;
-  document.getElementById('{logId}-writer').value = state.user.name;
-
-  // 2. 저장 데이터 복원
+// ── 폼 초기화 ──────────────────────────────────────────
+function initSi0202Form(date, savedJson) {
   var saved = {};
-  if (savedJson) { try { saved = JSON.parse(savedJson); } catch(e) {} }
-
-  // 3. formState 초기화
-  {PREFIX}_GROUPS.forEach(function(grp) {
-    grp.items.forEach(function(item) {
-      var s = (saved.items || {})[item.key] || {};
-      formState.checkData[item.key]    = s.result      || 'ok';
-      formState.defectTexts[item.key]  = s.defectText  || '';
-      formState.actionTexts[item.key]  = s.actionText  || '';
-      formState.defectPhotos[item.key] = s.defectPhoto || '';
-      formState.actionPhotos[item.key] = s.actionPhoto || '';
-    });
-  });
-
-  // 4. 추가 필드 복원 (필요 시)
-  if (saved.location) document.getElementById('{logId}-location').value = saved.location;
-
-  // 5. 렌더링
-  render{Prefix}Groups();
+  try { if (savedJson) saved = JSON.parse(savedJson); } catch(e) {}
+  document.getElementById('si0202-date').value     = date || state.serverToday;
+  document.getElementById('si0202-writer').value   = state.user.name;
+  // 추가 헤더 필드가 있으면 여기서 세팅
+  // document.getElementById('si0202-location').value = saved.location || SI0202_CONFIG.location;
+  initFormEngine(SI0202_CONFIG, 'si0202-groups-container', savedJson);
 }
+
+// ── 래퍼 함수 (엔진 위임) ─────────────────────────────
+function setAllSi0202Ok()             { setAllFormOk(SI0202_CONFIG); }
+function collectSi0202Data() {
+  var data = collectFormData(SI0202_CONFIG);
+  // 추가 헤더 필드가 있으면 여기서 병합
+  // data.location = (document.getElementById('si0202-location') || {}).value || SI0202_CONFIG.location;
+  return data;
+}
+function validateSi0202(data)         { return validateFormData(data, SI0202_CONFIG); }
+function getSi0202DefectSummary(data) { return getFormDefectSummary(data, SI0202_CONFIG); }
+function buildSi0202PrintHtml(r,j,s)  { return buildFormPrintHtml(r, j, s, SI0202_CONFIG); }
+function buildSi0202ViewHtml(r,j,t,s) { return buildFormViewHtml(r, j, t, s, SI0202_CONFIG); }
 ```
 
----
-
-##### 2-5. 부적합 항목 UI 패턴
-
-부적합 선택 시 표시되는 상세 입력 영역 구조:
-
-```html
-<!-- 부적합 내용 -->
-<label>🚨 부적합 내용 <span>*</span></label>
-<textarea id="{logId}-defect-text-{key}"></textarea>
-
-<!-- 부적합 사진 -->
-<label>📷 부적합 사진 (선택)</label>
-<div id="defect-photo-preview-{key}"></div>
-<button onclick="triggerPhoto('defect','{key}','camera')">📷 카메라</button>
-<button onclick="triggerPhoto('defect','{key}','gallery')">🖼 갤러리</button>
-<input type="file" accept="image/*" capture="environment"
-  id="photo-input-defect-camera-{key}"
-  onchange="handlePhoto('defect','{key}',this,'{sub}_부적합')">
-<input type="file" accept="image/*"
-  id="photo-input-defect-gallery-{key}"
-  onchange="handlePhoto('defect','{key}',this,'{sub}_부적합')">
-
-<!-- 개선조치 내용 -->
-<label>🔧 개선조치 내용 <span>*</span></label>
-<textarea id="{logId}-action-text-{key}"></textarea>
-
-<!-- 개선조치 사진 (동일 패턴, 'action' 으로 변경) -->
-```
+> 양식에 특수한 필드(온도 측정, 수치 기록 등)가 있을 때만 해당 부분만 커스터마이징한다. 나머지는 엔진에 위임한다.
 
 ---
 
