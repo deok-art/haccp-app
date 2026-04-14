@@ -1,5 +1,5 @@
 <!--
-  log_si0201.html — 이물관리 점검표
+  log_pb2_si0201.html — 이물관리 점검표
   문서번호: PBⅡ-SI-02-01
   logId:    si0201
 -->
@@ -10,22 +10,22 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div>
         <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">점검일자</label>
-        <input type="text" id="si0201-date" readonly
+        <input type="text" id="pb2-si0201-date" readonly
           style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#f5f5f5;">
       </div>
       <div>
         <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">점검자</label>
-        <input type="text" id="si0201-writer" readonly
+        <input type="text" id="pb2-si0201-writer" readonly
           style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#f5f5f5;">
       </div>
       <div>
         <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">점검위치</label>
-        <input type="text" id="si0201-location"
+        <input type="text" id="pb2-si0201-location"
           style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;">
       </div>
       <div>
         <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">점검주기</label>
-        <input type="text" id="si0201-period" readonly
+        <input type="text" id="pb2-si0201-period" readonly
           style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;background:#f5f5f5;">
       </div>
     </div>
@@ -42,7 +42,7 @@
         ✔ 전체 적합
       </button>
     </div>
-    <div id="si0201-groups-container"></div>
+    <div id="pb2-si0201-groups-container"></div>
   </div>
 </script>
 
@@ -145,18 +145,18 @@ var SI0201_CONFIG = {
 function initSi0201Form(date, savedJson) {
   var saved = {};
   try { if (savedJson) saved = JSON.parse(savedJson); } catch(e) {}
-  document.getElementById('si0201-date').value     = date || state.serverToday;
-  document.getElementById('si0201-writer').value   = state.user.name;
-  document.getElementById('si0201-location').value = saved.location || SI0201_CONFIG.location;
-  document.getElementById('si0201-period').value   = SI0201_CONFIG.period;
-  initFormEngine(SI0201_CONFIG, 'si0201-groups-container', savedJson);
+  document.getElementById('pb2-si0201-date').value     = date || state.serverToday;
+  document.getElementById('pb2-si0201-writer').value   = state.user.name;
+  document.getElementById('pb2-si0201-location').value = saved.location || SI0201_CONFIG.location;
+  document.getElementById('pb2-si0201-period').value   = SI0201_CONFIG.period;
+  initFormEngine(SI0201_CONFIG, 'pb2-si0201-groups-container', savedJson);
 }
 
 // ── 래퍼 함수 (엔진 위임) ─────────────────────────────
 function setAllSi0201Ok()             { setAllFormOk(SI0201_CONFIG); }
 function collectSi0201Data() {
-  var data = collectFormData(SI0201_CONFIG);
-  data.location = (document.getElementById('si0201-location') || {}).value || SI0201_CONFIG.location;
+  var data = engCollectFormData(SI0201_CONFIG);
+  data.location = (document.getElementById('pb2-si0201-location') || {}).value || SI0201_CONFIG.location;
   return data;
 }
 function validateSi0201(data)         { return validateFormData(data, SI0201_CONFIG); }

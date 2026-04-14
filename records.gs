@@ -22,13 +22,7 @@ function createNewLog(logId, title, writerId, writerName, targetDate, factoryId)
   }
 
   const recordId    = 'REC-' + new Date().getTime();
-  master.appendRow([recordId, logId, title, dateStr, writerId, writerName, '', '', '작성중', '', '', dateStr, '', '', fid]);
-
-  const detailSheet = SS.getSheetByName('Log_' + logId) || SS.insertSheet('Log_' + logId);
-  if (detailSheet.getLastRow() === 0) {
-    detailSheet.appendRow(['RecordID', 'Date', 'Writer', 'DataJson']);
-  }
-  detailSheet.appendRow([recordId, dateStr, writerName, JSON.stringify({})]);
+  master.appendRow([recordId, logId, title, dateStr, writerId, writerName, '', '', '작성중', '', '', dateStr, '', '', fid, JSON.stringify({})]);
 
   return { success: true, recordId };
 }
@@ -47,10 +41,11 @@ function saveDraft(recordId, logId, dataJson) {
 
 /**
  * 최종 제출 저장
+ * writerId/writerName: 서명한 사람으로 갱신 (배치 생성 등 다른 사람이 레코드를 만든 경우 대응)
  */
-function saveFormData(recordId, logId, dataJson, defectInfo) {
+function saveFormData(recordId, logId, dataJson, defectInfo, writerId, writerName) {
   try {
-    _updateDetailJson(logId, recordId, dataJson);
+    _updateDetailJson(logId, recordId, dataJson, writerName);
     const master = SS.getSheetByName('MasterRecords');
     if (master) {
       const data = master.getDataRange().getValues();
@@ -60,6 +55,9 @@ function saveFormData(recordId, logId, dataJson, defectInfo) {
           master.getRange(i + 1, 9).setValue('작성완료');
           master.getRange(i + 1, 11).setValue(defectInfo);
           master.getRange(i + 1, 12).setValue(now); // WriteDate 기록
+          // 서명한 사람으로 작성자 갱신
+          if (writerId)   master.getRange(i + 1, 5).setValue(writerId);
+          if (writerName) master.getRange(i + 1, 6).setValue(writerName);
           break;
         }
       }
@@ -97,8 +95,8 @@ function processRecordAction(recordId, action, userId, userName, userRole) {
         return { success: true };
         
       case 'CANCEL_REVIEW':
-        if (role < 2)              return { success: false, message: '검토 권한이 없습니다.' };
-        if (status !== '검토완료') return { success: false, message: '검토완료 상태에서만 취소 가능합니다.' };
+        if (role < 2) return { success: false, message: '검토 권한이 없습니다.' };
+        if (status !== '검토완료' && status !== '검토취소요청') return { success: false, message: '검토완료/검토취소요청 상태에서만 취소 가능합니다.' };
         sheet.getRange(i + 1, 7).setValue('');
         sheet.getRange(i + 1, 9).setValue('작성완료');
         sheet.getRange(i + 1, 13).setValue(''); // ReviewDate 초기화
@@ -125,15 +123,74 @@ function processRecordAction(recordId, action, userId, userName, userRole) {
         
       case 'REVOKE':
         if (role < 3) return { success: false, message: '승인취소 권한이 없습니다.' };
-        const hadReviewer = String(data[i][6] || '') !== '';
-        sheet.getRange(i + 1, 8).setValue('');
-        sheet.getRange(i + 1, 9).setValue(hadReviewer ? '검토완료' : '작성완료');
-        sheet.getRange(i + 1, 14).setValue(''); // ApproveDate 초기화
+        if (status !== '승인완료' && status !== '취소요청') return { success: false, message: '승인완료/취소요청 상태에서만 가능합니다.' };
+        // 검토자·승인자·상태·모든 날짜 초기화 → 작성중으로 완전 복귀
+        sheet.getRange(i + 1, 7, 1, 3).setValues([['', '', '작성중']]);  // reviewer, approver, status
+        sheet.getRange(i + 1, 12, 1, 3).setValues([['', '', '']]);        // WriteDate, ReviewDate, ApproveDate
+        return { success: true };
+
+      case 'REQUEST_REVOKE':
+        if (writerId !== userId)    return { success: false, message: '본인 작성 문서만 요청할 수 있습니다.' };
+        if (status !== '승인완료') return { success: false, message: '승인완료 상태에서만 요청 가능합니다.' };
+        sheet.getRange(i + 1, 9).setValue('취소요청');
+        return { success: true };
+
+      case 'CANCEL_REVOKE_REQUEST':
+        if (writerId !== userId)    return { success: false, message: '본인 작성 문서만 요청 취소할 수 있습니다.' };
+        if (status !== '취소요청') return { success: false, message: '취소요청 상태에서만 가능합니다.' };
+        sheet.getRange(i + 1, 9).setValue('승인완료');
+        return { success: true };
+
+      case 'REJECT_REVOKE_REQUEST':
+        if (role < 3)               return { success: false, message: '반려 권한이 없습니다.' };
+        if (status !== '취소요청') return { success: false, message: '취소요청 상태에서만 가능합니다.' };
+        sheet.getRange(i + 1, 9).setValue('승인완료');
+        return { success: true };
+
+      case 'REQUEST_REVIEW_CANCEL':
+        if (writerId !== userId)    return { success: false, message: '본인 작성 문서만 요청할 수 있습니다.' };
+        if (status !== '검토완료') return { success: false, message: '검토완료 상태에서만 요청 가능합니다.' };
+        sheet.getRange(i + 1, 9).setValue('검토취소요청');
+        return { success: true };
+
+      case 'CANCEL_REVIEW_CANCEL_REQUEST':
+        if (writerId !== userId)         return { success: false, message: '본인 작성 문서만 요청 취소할 수 있습니다.' };
+        if (status !== '검토취소요청') return { success: false, message: '검토취소요청 상태에서만 가능합니다.' };
+        sheet.getRange(i + 1, 9).setValue('검토완료');
+        return { success: true };
+
+      case 'REJECT_REVIEW_CANCEL_REQUEST':
+        if (role < 2)                    return { success: false, message: '반려 권한이 없습니다.' };
+        if (status !== '검토취소요청') return { success: false, message: '검토취소요청 상태에서만 가능합니다.' };
+        sheet.getRange(i + 1, 9).setValue('검토완료');
         return { success: true };
     }
   }
 
   return { success: false, message: '일지를 찾을 수 없습니다.' };
+}
+
+/**
+ * 미작성/작성중 일지 레코드 삭제
+ */
+function deleteRecord(recordId) {
+  try {
+    const master = SS.getSheetByName('MasterRecords');
+    if (!master) return { success: false, message: '시트를 찾을 수 없습니다.' };
+    const data = master.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]) !== recordId) continue;
+      const status = String(data[i][8]);
+      if (status !== '미작성' && status !== '작성중' && status !== '작성완료') {
+        return { success: false, message: '작성완료 이하 상태의 일지만 삭제할 수 있습니다.' };
+      }
+      master.deleteRow(i + 1);
+      return { success: true };
+    }
+    return { success: false, message: '일지를 찾을 수 없습니다.' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  }
 }
 
 /**
@@ -153,10 +210,8 @@ function batchActionByIds(ids, action, userName, userRole) {
       sheet.getRange(i + 1, 14).setValue(now);
     }
     if (action === 'REVOKE' && role >= 3) {
-      const hadReviewer = String(data[i][6] || '') !== '';
-      sheet.getRange(i + 1, 8).setValue('');
-      sheet.getRange(i + 1, 9).setValue(hadReviewer ? '검토완료' : '작성완료');
-      sheet.getRange(i + 1, 14).setValue('');
+      sheet.getRange(i + 1, 7, 1, 3).setValues([['', '', '작성중']]);
+      sheet.getRange(i + 1, 12, 1, 3).setValues([['', '', '']]);
     }
   }
   return { success: true };
@@ -174,10 +229,7 @@ function batchWriteAllRecords(userId, userName) {
   logs.forEach(log => {
     if (doneIds.includes(log.id)) return;
     const recordId = 'REC-' + new Date().getTime() + Math.floor(Math.random() * 1000);
-    master.appendRow([recordId, log.id, log.title, todayStr, userId, userName, '', '', '작성완료', '', '', todayStr, '', '', log.factoryId || 'pb2']);
-    const ds = SS.getSheetByName('Log_' + log.id) || SS.insertSheet('Log_' + log.id);
-    if (ds.getLastRow() === 0) ds.appendRow(['RecordID', 'Date', 'Writer', 'DataJson']);
-    ds.appendRow([recordId, todayStr, userName, JSON.stringify({ autoFilled: true })]);
+    master.appendRow([recordId, log.id, log.title, todayStr, userId, userName, '', '', '작성완료', '', '', todayStr, '', '', log.factoryId || 'pb2', JSON.stringify({ autoFilled: true })]);
   });
   return { success: true };
 }
@@ -220,11 +272,7 @@ function createTodayDailyLogsBatch(factoryId, writerId, writerName, forceLogIds,
       return;
     }
     const recordId = 'REC-' + new Date().getTime() + Math.floor(Math.random() * 1000);
-    master.appendRow([recordId, log.id, log.title, todayStr, '', '', '', '', '미작성', '', '', todayStr, '', '', fid]);
-
-    const ds = SS.getSheetByName('Log_' + log.id) || SS.insertSheet('Log_' + log.id);
-    if (ds.getLastRow() === 0) ds.appendRow(['RecordID', 'Date', 'Writer', 'DataJson']);
-    ds.appendRow([recordId, todayStr, '', JSON.stringify({})]);
+    master.appendRow([recordId, log.id, log.title, todayStr, '', '', '', '', '미작성', '', '', todayStr, '', '', fid, JSON.stringify({})]);
     created++;
   });
 
@@ -260,13 +308,14 @@ function batchProcessRecords(action, userName, userRole) {
 
 // ── 내부 헬퍼 ──────────────────────────────────────────
 
-function _updateDetailJson(logId, recordId, dataJson) {
-  const sheet = SS.getSheetByName('Log_' + logId);
-  if (!sheet) return;
-  const data = sheet.getDataRange().getValues();
+function _updateDetailJson(logId, recordId, dataJson, writerName) {
+  const master = SS.getSheetByName('MasterRecords');
+  if (!master) return;
+  const data = master.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (String(data[i][0]) === recordId) {
-      sheet.getRange(i + 1, 4).setValue(dataJson);
+      master.getRange(i + 1, 16).setValue(dataJson); // col16: DataJson
+      if (writerName) master.getRange(i + 1, 6).setValue(writerName); // col6: writerName
       break;
     }
   }

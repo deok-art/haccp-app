@@ -132,6 +132,12 @@
             onpointerdown="startPress(event,'REVOKE_MODE')" onpointerup="cancelPress()" onpointerleave="cancelPress()">
             최종 완료
           </button>
+          <button id="revoke-request-tab" class="sub-filter-btn hidden" onclick="filterDoneList('revoke-request',this)" style="color:#c0392b;font-weight:bold;">
+            취소요청 <span id="revoke-request-count" style="background:#c0392b;color:white;border-radius:10px;padding:1px 6px;font-size:11px;margin-left:2px;"></span>
+          </button>
+          <button id="review-cancel-request-tab" class="sub-filter-btn hidden" onclick="filterDoneList('review-cancel-request',this)" style="color:#8e44ad;font-weight:bold;">
+            검토취소요청 <span id="review-cancel-request-count" style="background:#8e44ad;color:white;border-radius:10px;padding:1px 6px;font-size:11px;margin-left:2px;"></span>
+          </button>
         </div>
         <div id="done-list" class="done-list-container"></div>
       </section>
@@ -281,7 +287,7 @@
 <!-- 인쇄 공통 템플릿 (모든 양식 공유) -->
 <?!= include('js_print_template'); ?>
 <!-- 일지별 파일 (새 일지 추가 시 여기에 추가) -->
-<?!= include('log_si0201'); ?>
+<?!= include('log_pb2_si0201'); ?>
 
 <!-- 인쇄/PDF -->
 <?!= include('js_print'); ?>
