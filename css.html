@@ -32,6 +32,7 @@
   .toast.success { background:#27ae60; }
   .toast.error   { background:#e74c3c; }
   .toast.info    { background:#3498db; }
+  .toast.warning { background:#e67e22; }
   @keyframes slideIn { from{opacity:0;transform:translateX(30px)} to{opacity:1;transform:translateX(0)} }
 
   /* ── 로그인 ── */
@@ -227,9 +228,6 @@
   .btn-group { display:flex;gap:10px;margin-top:15px; }
   .btn-flex  { flex:1;padding:12px;border-radius:8px;border:none;font-weight:bold;cursor:pointer;font-size:14px;min-height:44px; }
 
-  /* ── 관리자 버튼 ── */
-  #admin-post-btn { background:none;border:1px solid #ccc;padding:6px 10px;border-radius:6px;font-size:11px;color:#666;cursor:pointer;min-height:36px; }
-
   /* ── 푸터 ── */
   .system-footer { text-align:center;padding:20px 15px;color:#999;font-size:11px;line-height:1.8;word-break:keep-all;display:block;width:100%;box-sizing:border-box; }
 
@@ -238,11 +236,16 @@
   ════════════════ */
   @media (max-width: 480px) {
     .login-card { padding:30px 20px;margin:5vh 15px; }
-    .common-header { padding:8px 12px; }
-    .logo-img { height:28px; }
+    /* ── 헤더 2행 레이아웃 (모바일) ── */
+    .common-header { padding:6px 12px;flex-wrap:wrap;gap:0; }
+    .header-left { width:100%;gap:5px;flex-wrap:wrap; }
+    .user-info { width:100%;justify-content:flex-end;flex-wrap:wrap;gap:5px;padding:5px 0 2px;border-top:1px solid #eee;font-size:12px; }
+    .logo-img { height:26px; }
     .btn-info { display:none; }
-    .btn-logout { padding:6px 10px;font-size:11px; }
+    .btn-logout { padding:5px 9px;font-size:11px;min-height:36px; }
     .header-company-name { font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px; }
+    /* 헤더 내 인라인 스타일 버튼(사후작성·테스트·인쇄·공장전환·사용자관리) 크기 조정 */
+    .header-left button, .user-info button { padding:5px 8px !important;font-size:11px !important;min-height:34px; }
     .tab-btn { padding:12px 5px;font-size:12px; }
     .sub-filter-btn { padding:6px 10px;font-size:11px; }
     .log-card { padding:12px; }

@@ -1,0 +1,352 @@
+<!-- log_pb2_si0102dr.html — 부대시설 위생점검 일지 (탈의실) PBⅡ-SI-01-02 -->
+
+<!-- ════════════════════════════════════════════
+     블록 1: HTML 템플릿
+════════════════════════════════════════════ -->
+<script type="text/template" id="tpl-si0102dr">
+  <div class="form-section">
+    <h3>1. 점검 기본 정보</h3>
+    <div class="input-group">
+      <label>점검기간</label>
+      <input type="text" id="si0102dr-period" readonly class="input-readonly">
+    </div>
+    <div class="input-group">
+      <label>점검자</label>
+      <input type="text" id="si0102dr-writer" readonly class="input-readonly">
+    </div>
+    <div class="input-group">
+      <label>점검위치</label>
+      <input type="text" value="탈의실" readonly class="input-readonly">
+    </div>
+    <div class="input-group">
+      <label>점검주기</label>
+      <input type="text" value="일 1회" readonly class="input-readonly">
+    </div>
+    <div style="background:#f0f7ff;border-radius:8px;padding:10px;font-size:12px;color:#555;margin-top:8px;">
+      <strong>범례:</strong>&nbsp; ○ 적합 &nbsp;|&nbsp; × 부적합
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin:0;">2. 점검 항목</h3>
+      <button onclick="setAllSi0102drOk()" class="btn-all-ok">✔ 전체 적합</button>
+    </div>
+    <div id="si0102dr-day-tabs" style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;"></div>
+    <div id="pb2-si0102dr-groups-container"></div>
+  </div>
+</script>
+
+<!-- ════════════════════════════════════════════
+     블록 2: JS 로직
+════════════════════════════════════════════ -->
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────────────
+var SI0102DR_CONFIG = {
+  formId:   'si0102dr',
+  title:    '부대시설 위생점검 일지 (탈의실)',
+  docNo:    'PBⅡ-SI-01-02',
+  revision: 'Rev.1',
+  period:   '일 1회',
+  location: '탈의실',
+  groups: [
+    { group: '락커룸·휴게실', items: [
+      { key: 'dr_lk_floor',   sub: '바닥',     desc: '이물 등 청소상태' },
+      { key: 'dr_lk_wall',    sub: '벽면',     desc: '파손 및 먼지 등 청소상태' },
+      { key: 'dr_lk_ceiling', sub: '천정',     desc: '거미줄, 먼지 등 청소상태' },
+      { key: 'dr_lk_door',    sub: '출입구',   desc: '출입문 및 손잡이 등 청소상태' },
+      { key: 'dr_lk_vent',    sub: '환기시설', desc: '밀폐관리, 작동상태, 청소상태' },
+      { key: 'dr_lk_aircon',  sub: '에어컨',   desc: '내부 필터 등 청소상태' },
+      { key: 'dr_lk_light',   sub: '조명',     desc: '점등상태 및 청결상태' },
+      { key: 'dr_lk_locker',  sub: '옷장',     desc: '위생복·사복 구분 보관 및 청소상태' }
+    ]},
+    { group: '탈의실', items: [
+      { key: 'dr_dr_floor',   sub: '바닥',     desc: '이물 등 청소상태' },
+      { key: 'dr_dr_wall',    sub: '벽면',     desc: '파손 및 먼지 등 청소상태' },
+      { key: 'dr_dr_ceiling', sub: '천정',     desc: '거미줄, 먼지 등 청소상태' },
+      { key: 'dr_dr_door',    sub: '출입구',   desc: '출입문 및 손잡이 등 청소상태' },
+      { key: 'dr_dr_vent',    sub: '환기시설', desc: '밀폐관리, 작동상태, 청소상태' },
+      { key: 'dr_dr_aircon',  sub: '에어컨',   desc: '내부 필터 등 청소상태' },
+      { key: 'dr_dr_light',   sub: '조명',     desc: '점등상태 및 청결상태' }
+    ]},
+    { group: '세탁실·샤워실', items: [
+      { key: 'dr_sh_tile',       sub: '벽·바닥',   desc: '타일 파손 및 청소상태' },
+      { key: 'dr_sh_drain',      sub: '배수로',     desc: '퇴적물 및 청소상태' },
+      { key: 'dr_sh_faucet',     sub: '수전시설',   desc: '급수·분무·잠금물량 상태' },
+      { key: 'dr_sh_slipper',    sub: '실내화',     desc: '전용 실내화 구분 관리 및 청결상태' },
+      { key: 'dr_sh_detergent',  sub: '세척제',     desc: '비치 및 용기 청결상태' }
+    ]},
+    { group: '기타', items: [
+      { key: 'dr_trash', sub: '쓰레기통', desc: '정기 폐기여부, 파손 및 청결상태' },
+      { key: 'dr_entry', sub: '반입관리', desc: '반입금지 품목(음식물, 장신구 등) 보관여부' }
+    ]}
+  ]
+};
+
+var _SI0102DR_DAYS = ['월','화','수','목','금'];
+
+var weeklyState_si0102dr = {
+  weekStart: '',
+  activeDay: '월',
+  days: { '월': null, '화': null, '수': null, '목': null, '금': null }
+};
+
+// ── 요일 탭 렌더링 ───────────────────────────────────────────────────────
+function _renderSi0102drDayTabs() {
+  var container = document.getElementById('si0102dr-day-tabs');
+  if (!container) return;
+  var ws   = weeklyState_si0102dr;
+  var html = '';
+  _SI0102DR_DAYS.forEach(function(day) {
+    var isActive = day === ws.activeDay;
+    var hasSaved = ws.days[day] !== null;
+    var bg     = isActive ? 'var(--primary)' : (hasSaved ? '#27ae60' : '#eee');
+    var color  = (isActive || hasSaved) ? 'white' : '#666';
+    var border = isActive ? 'var(--primary)' : (hasSaved ? '#27ae60' : '#ccc');
+    html += '<button onclick="_switchSi0102drDay(\'' + day + '\')"' +
+      ' style="padding:8px 18px;border-radius:20px;border:1px solid ' + border + ';cursor:pointer;' +
+      'font-weight:bold;font-size:14px;background:' + bg + ';color:' + color + ';">' +
+      day + '</button>';
+  });
+  container.innerHTML = html;
+}
+
+// ── 요일 전환 ────────────────────────────────────────────────────────────
+function _switchSi0102drDay(day) {
+  _saveSi0102drCurrentDayToState();
+  weeklyState_si0102dr.activeDay = day;
+  _loadSi0102drDayToFormState(day);
+  _renderSi0102drDayTabs();
+  renderFormGroups(SI0102DR_CONFIG, 'pb2-si0102dr-groups-container');
+}
+
+// ── 저장된 요일 데이터 → formState 로드 ─────────────────────────────────
+function _loadSi0102drDayToFormState(day) {
+  formState = { checkData: {}, defectTexts: {}, actionTexts: {}, defectPhotos: {}, actionPhotos: {} };
+  var saved = weeklyState_si0102dr.days[day];
+  if (!saved) return;
+  SI0102DR_CONFIG.groups.forEach(function(g) {
+    g.items.forEach(function(item) {
+      var d = saved[item.key];
+      if (!d || !d.result) return;
+      formState.checkData[item.key]    = d.result;
+      formState.defectTexts[item.key]  = d.defectText  || '';
+      formState.actionTexts[item.key]  = d.actionText  || '';
+      formState.defectPhotos[item.key] = d.defectPhoto || '';
+      formState.actionPhotos[item.key] = d.actionPhoto || '';
+    });
+  });
+}
+
+// ── 현재 요일 데이터 → weeklyState 저장 ─────────────────────────────────
+function _saveSi0102drCurrentDayToState() {
+  var day  = weeklyState_si0102dr.activeDay;
+  var fid  = SI0102DR_CONFIG.formId;
+  var dayData = {};
+  var hasAny  = false;
+  SI0102DR_CONFIG.groups.forEach(function(g) {
+    g.items.forEach(function(item) {
+      var k      = item.key;
+      var result = formState.checkData[k];
+      if (!result) return;
+      hasAny = true;
+      var defectEl = document.getElementById(fid + '-defect-text-' + k);
+      var actionEl = document.getElementById(fid + '-action-text-' + k);
+      dayData[k] = {
+        result:      result,
+        defectText:  result === 'ng' ? (defectEl ? defectEl.value.trim() : (formState.defectTexts[k] || '')) : '',
+        actionText:  result === 'ng' ? (actionEl ? actionEl.value.trim() : (formState.actionTexts[k] || '')) : '',
+        defectPhoto: formState.defectPhotos[k] || '',
+        actionPhoto: formState.actionPhotos[k] || ''
+      };
+    });
+  });
+  weeklyState_si0102dr.days[day] = hasAny ? dayData : null;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+//  래퍼 함수 7개
+// ══════════════════════════════════════════════════════════════════════════
+
+function initSi0102drForm(date, savedJson, weekStart) {
+  weeklyState_si0102dr.weekStart = weekStart;
+  weeklyState_si0102dr.days = { '월': null, '화': null, '수': null, '목': null, '금': null };
+
+  // 저장된 데이터 복원
+  if (savedJson) {
+    try {
+      var saved = typeof savedJson === 'string' ? JSON.parse(savedJson) : savedJson;
+      if (saved && saved.days) {
+        _SI0102DR_DAYS.forEach(function(d) {
+          if (saved.days.hasOwnProperty(d)) weeklyState_si0102dr.days[d] = saved.days[d];
+        });
+      }
+    } catch (e) {}
+  }
+
+  // 오늘 요일 자동 선택
+  var today  = (state && state.serverToday) ? state.serverToday : new Date().toISOString().slice(0, 10);
+  var dayMap = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금' };
+  var dow    = new Date(today + 'T00:00:00').getDay();
+  weeklyState_si0102dr.activeDay = dayMap[dow] || '월';
+
+  // 기본 정보 채우기
+  var wsDate   = new Date(weekStart + 'T00:00:00');
+  var weStr    = new Date(wsDate.getTime() + 4 * 86400000).toISOString().slice(0, 10);
+  var periodEl = document.getElementById('si0102dr-period');
+  if (periodEl) periodEl.value = weekStart + ' ~ ' + weStr;
+  var writerEl = document.getElementById('si0102dr-writer');
+  if (writerEl) writerEl.value = (state && state.user) ? state.user.name : '';
+
+  // 렌더링
+  _loadSi0102drDayToFormState(weeklyState_si0102dr.activeDay);
+  _renderSi0102drDayTabs();
+  renderFormGroups(SI0102DR_CONFIG, 'pb2-si0102dr-groups-container');
+}
+
+function setAllSi0102drOk() {
+  setAllFormOk(SI0102DR_CONFIG);
+}
+
+function collectSi0102drData() {
+  _saveSi0102drCurrentDayToState();
+  var ws = weeklyState_si0102dr;
+  return { dayKey: ws.activeDay, items: ws.days[ws.activeDay] || {} };
+}
+
+function validateSi0102dr(data) {
+  var items = (data && data.items) ? data.items : {};
+  var keys  = Object.keys(items);
+  for (var i = 0; i < keys.length; i++) {
+    var d = items[keys[i]];
+    if (d && d.result === 'ng') {
+      if (!d.defectText || !d.defectText.trim()) return '부적합 항목의 부적합 내용을 입력해주세요.';
+      if (!d.actionText || !d.actionText.trim()) return '부적합 항목의 개선조치를 입력해주세요.';
+    }
+  }
+  return null;
+}
+
+function getSi0102drDefectSummary(data) {
+  var items = (data && data.items) ? data.items : {};
+  var keys  = Object.keys(items);
+  for (var i = 0; i < keys.length; i++) {
+    var d = items[keys[i]];
+    if (d && d.result === 'ng' && d.defectText) {
+      return JSON.stringify({ day: data.dayKey, key: keys[i], defectText: d.defectText });
+    }
+  }
+  return '';
+}
+
+function buildSi0102drPrintHtml(rec, dataJsonStr, sigRes) {
+  var config = SI0102DR_CONFIG;
+  var days   = {};
+  try {
+    var parsed = typeof dataJsonStr === 'string' ? JSON.parse(dataJsonStr) : dataJsonStr;
+    if (parsed && parsed.days) days = parsed.days;
+  } catch (e) {}
+
+  var DAYS     = ['월','화','수','목','금'];
+  var signCols = buildFormSignCols(rec, sigRes);
+
+  // ── 점검항목 테이블 ──────────────────────────────────────────
+  var tbl = '<table style="width:100%;border-collapse:collapse;font-size:8.5pt;margin-bottom:10px;">' +
+    '<colgroup>' +
+      '<col style="width:9%"><col style="width:10%"><col style="width:34%">' +
+      '<col style="width:9.4%"><col style="width:9.4%"><col style="width:9.4%"><col style="width:9.4%"><col style="width:9.4%">' +
+    '</colgroup>' +
+    '<thead><tr style="background:#2c3e50;color:white;text-align:center;">' +
+      '<th style="border:1px solid #bbb;padding:5px;">구분</th>' +
+      '<th style="border:1px solid #bbb;padding:5px;">항목</th>' +
+      '<th style="border:1px solid #bbb;padding:5px;">점검사항</th>' +
+      '<th style="border:1px solid #bbb;padding:5px;">월</th>' +
+      '<th style="border:1px solid #bbb;padding:5px;">화</th>' +
+      '<th style="border:1px solid #bbb;padding:5px;">수</th>' +
+      '<th style="border:1px solid #bbb;padding:5px;">목</th>' +
+      '<th style="border:1px solid #bbb;padding:5px;">금</th>' +
+    '</tr></thead><tbody>';
+
+  config.groups.forEach(function(g) {
+    g.items.forEach(function(item, idx) {
+      var rowBg = idx % 2 === 0 ? '' : 'background:#fafafa;';
+      tbl += '<tr style="' + rowBg + '">';
+      if (idx === 0) {
+        tbl += '<td rowspan="' + g.items.length + '" style="border:1px solid #bbb;padding:4px 2px;text-align:center;' +
+          'vertical-align:middle;font-weight:bold;font-size:7.5pt;background:#ecf0f1;">' + g.group + '</td>';
+      }
+      tbl += '<td style="border:1px solid #bbb;padding:4px;text-align:center;vertical-align:middle;font-size:8pt;">' + (item.sub || '') + '</td>';
+      tbl += '<td style="border:1px solid #bbb;padding:4px;vertical-align:middle;font-size:7.5pt;color:#444;">' + item.desc + '</td>';
+      DAYS.forEach(function(day) {
+        var dayData = days[day];
+        var val = ''; var extra = '';
+        if (dayData && dayData[item.key] && dayData[item.key].result) {
+          var r = dayData[item.key].result;
+          if (r === 'ok')      { val = '○'; extra = 'color:#27ae60;font-weight:bold;'; }
+          else if (r === 'ng') { val = '×'; extra = 'color:#e74c3c;font-weight:bold;'; }
+        }
+        tbl += '<td style="border:1px solid #bbb;padding:4px;text-align:center;vertical-align:middle;font-size:11pt;' + extra + '">' + val + '</td>';
+      });
+      tbl += '</tr>';
+    });
+  });
+  tbl += '</tbody></table>';
+
+  // ── 부적합 내역 ───────────────────────────────────────────────
+  var defects = [];
+  DAYS.forEach(function(day) {
+    var dayData = days[day];
+    if (!dayData) return;
+    config.groups.forEach(function(g) {
+      g.items.forEach(function(item) {
+        var d = dayData[item.key];
+        if (d && d.result === 'ng') {
+          defects.push({ day: day, sub: item.sub, defectText: d.defectText || '', actionText: d.actionText || '' });
+        }
+      });
+    });
+  });
+
+  var defectTbl = '';
+  if (defects.length) {
+    defectTbl = '<div style="margin-top:10px;">' +
+      '<div style="font-weight:bold;font-size:9pt;margin-bottom:5px;color:#c0392b;">● 부적합 내역</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:8.5pt;">' +
+        '<thead><tr style="background:#fde8e8;text-align:center;">' +
+          '<th style="border:1px solid #ccc;padding:4px;width:6%;">요일</th>' +
+          '<th style="border:1px solid #ccc;padding:4px;width:11%;">항목</th>' +
+          '<th style="border:1px solid #ccc;padding:4px;width:41.5%;">부적합 내용</th>' +
+          '<th style="border:1px solid #ccc;padding:4px;width:41.5%;">개선조치</th>' +
+        '</tr></thead><tbody>';
+    defects.forEach(function(df) {
+      defectTbl += '<tr>' +
+        '<td style="border:1px solid #ccc;padding:4px;text-align:center;">' + df.day + '</td>' +
+        '<td style="border:1px solid #ccc;padding:4px;text-align:center;">' + df.sub + '</td>' +
+        '<td style="border:1px solid #ccc;padding:4px;">' + df.defectText + '</td>' +
+        '<td style="border:1px solid #ccc;padding:4px;">' + df.actionText + '</td>' +
+        '</tr>';
+    });
+    defectTbl += '</tbody></table></div>';
+  }
+
+  // ── 부가 정보 헤더 ────────────────────────────────────────────
+  var wsDate = rec.date || '';
+  var weStr  = '';
+  if (wsDate) {
+    weStr = new Date(new Date(wsDate + 'T00:00:00').getTime() + 4 * 86400000).toISOString().slice(0, 10);
+  }
+  var bodyHtml =
+    '<div style="font-size:9pt;margin-bottom:8px;color:#555;">' +
+      '점검기간: ' + wsDate + (weStr ? ' ~ ' + weStr : '') +
+      ' &nbsp;|&nbsp; 점검위치: ' + config.location +
+      ' &nbsp;|&nbsp; 점검주기: ' + config.period +
+    '</div>' +
+    tbl + defectTbl;
+
+  return buildPrintPage(config.title, bodyHtml, config, signCols, 1, 1);
+}
+
+function buildSi0102drViewHtml(rec, dataJsonStr, title, sigRes) {
+  return buildSi0102drPrintHtml(rec, dataJsonStr, sigRes);
+}
+</script>

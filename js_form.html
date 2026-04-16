@@ -3,9 +3,78 @@
 //  js_form.html — 폼 라우팅 / 수집·검증 / 제출 / 뷰어
 // ════════════════════════════════════════════════════════
 
+// 주간 양식 logId 목록
+var WEEKLY_LOG_IDS = ['si0102hs', 'si0102dr', 'si0102wc'];
+
+/**
+ * 날짜 문자열(yyyy-MM-dd) → 해당 주 월요일 문자열 반환
+ */
+function computeWeekStart(dateStr) {
+  var d = new Date(dateStr + 'T00:00:00+09:00');
+  var day = d.getDay(); // 0=일,1=월,...6=토
+  var diff = (day === 0) ? -6 : 1 - day; // 월요일 기준 이동
+  d.setDate(d.getDate() + diff);
+  var y = d.getFullYear();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var dd = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + dd;
+}
+
+/**
+ * 날짜 문자열 → 한글 요일 반환 (월/화/수/목/금/토/일)
+ */
+function getKorDayOfWeek(dateStr) {
+  var d = new Date(dateStr + 'T00:00:00+09:00');
+  return ['일', '월', '화', '수', '목', '금', '토'][d.getDay()];
+}
+
 function openForm(recordId, logId, title, date) {
+  currentLogInfo = { logId: logId, logTitle: title };
+
+  // 주간 양식: getOrCreateWeeklyRecord 호출 후 recordId를 서버 반환값으로 갱신
+  if (WEEKLY_LOG_IDS.indexOf(logId) !== -1) {
+    currentRecordId = recordId; // 임시, 서버 응답 후 갱신
+    var weekStart = computeWeekStart(date || state.serverToday);
+    showLoading('불러오는 중...');
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (!res || !res.success) {
+          hideLoading();
+          showToast('일지를 불러오지 못했습니다.', 'error');
+          return;
+        }
+        currentRecordId = res.recordId; // 실제 recordId 갱신
+
+        var formArea = document.getElementById('form-scroll-area');
+        document.getElementById('form-title').innerText = title;
+
+        if (logId === 'si0102hs') {
+          var tpl = document.getElementById('tpl-si0102hs');
+          if (tpl) formArea.innerHTML = tpl.innerHTML;
+          if (typeof initSi0102hsForm === 'function') initSi0102hsForm(date, res.dataJson, weekStart);
+        } else if (logId === 'si0102dr') {
+          var tpl = document.getElementById('tpl-si0102dr');
+          if (tpl) formArea.innerHTML = tpl.innerHTML;
+          if (typeof initSi0102drForm === 'function') initSi0102drForm(date, res.dataJson, weekStart);
+        } else if (logId === 'si0102wc') {
+          var tpl = document.getElementById('tpl-si0102wc');
+          if (tpl) formArea.innerHTML = tpl.innerHTML;
+          if (typeof initSi0102wcForm === 'function') initSi0102wcForm(date, res.dataJson, weekStart);
+        }
+
+        hideLoading();
+        document.getElementById('main-screen').classList.add('hidden');
+        document.getElementById('form-screen').classList.remove('hidden');
+      })
+      .withFailureHandler(function() {
+        hideLoading();
+        showToast('네트워크가 불안정합니다. 다시 시도해주세요.', 'error');
+      })
+      .getOrCreateWeeklyRecord(logId, title, state.currentFactory || 'pb2', weekStart, state.user.id, state.user.name);
+    return;
+  }
+
   currentRecordId = recordId;
-  currentLogInfo  = { logId: logId, logTitle: title };
 
   // 기존 저장 데이터 불러오기 (작성취소 후 재진입 시 데이터 유지)
   showLoading('불러오는 중...');
@@ -139,7 +208,10 @@ function setAllOk() {
 
 // ── 데이터 수집 라우터 ─────────────────────────────────
 function collectFormData() {
-  if (currentLogInfo.logId === 'si0201') return collectSi0201Data();
+  if (currentLogInfo.logId === 'si0201')   return collectSi0201Data();
+  if (currentLogInfo.logId === 'si0102hs') return collectSi0102hsData();
+  if (currentLogInfo.logId === 'si0102dr') return collectSi0102drData();
+  if (currentLogInfo.logId === 'si0102wc') return collectSi0102wcData();
 
 
   var data = {
@@ -163,7 +235,18 @@ function collectFormData() {
 
 // ── 검증 라우터 ────────────────────────────────────────
 function validateForm(data) {
-  if (currentLogInfo.logId === 'si0201') return validateSi0201(data);
+  if (currentLogInfo.logId === 'si0201')   return validateSi0201(data);
+  // 주간 양식: null=통과, string=에러메시지
+  var weeklyValidators = {
+    'si0102hs': validateSi0102hs,
+    'si0102dr': validateSi0102dr,
+    'si0102wc': validateSi0102wc
+  };
+  if (weeklyValidators[currentLogInfo.logId]) {
+    var err = weeklyValidators[currentLogInfo.logId](data);
+    if (err) { showToast(err, 'error'); return false; }
+    return true;
+  }
 
 
   if (!data.temperature && data.temperature !== 0) {
@@ -186,7 +269,10 @@ function validateForm(data) {
 
 // ── 부적합 요약 라우터 ─────────────────────────────────
 function getDefectSummary(data) {
-  if (currentLogInfo.logId === 'si0201') return getSi0201DefectSummary(data);
+  if (currentLogInfo.logId === 'si0201')   return getSi0201DefectSummary(data);
+  if (currentLogInfo.logId === 'si0102hs') return getSi0102hsDefectSummary(data);
+  if (currentLogInfo.logId === 'si0102dr') return getSi0102drDefectSummary(data);
+  if (currentLogInfo.logId === 'si0102wc') return getSi0102wcDefectSummary(data);
 
 
   for (var i = 0; i < CHECK_ITEMS.length; i++) {
@@ -201,7 +287,7 @@ function getDefectSummary(data) {
 
 // ── 임시저장 후 나가기 ─────────────────────────────────
 function saveDraftAndBack() {
-  var dataJson = JSON.stringify(collectFormData());
+  var data = collectFormData();
 
   // 나가기 전 전체 로딩으로 중복 액션 방지
   showLoading('임시저장 중...');
@@ -211,6 +297,23 @@ function saveDraftAndBack() {
     document.getElementById('form-screen').classList.add('hidden');
     document.getElementById('main-screen').classList.remove('hidden');
   }
+
+  // 주간 양식: 해당 요일 데이터만 부분 저장 (isDraft=true → status 변경 없음)
+  if (WEEKLY_LOG_IDS.indexOf(currentLogInfo.logId) !== -1) {
+    if (navigator.onLine) {
+      google.script.run
+        .withSuccessHandler(function() { goBack(); showToast('임시저장 완료 ✔', 'success'); })
+        .withFailureHandler(function() { goBack(); showToast('임시저장 실패', 'error'); })
+        .saveWeeklyFormData(currentRecordId, currentLogInfo.logId, data.dayKey,
+            JSON.stringify(data.items), '', state.user.id, state.user.name, true);
+    } else {
+      goBack();
+      showToast('오프라인에서는 임시저장이 지원되지 않습니다.', 'info');
+    }
+    return;
+  }
+
+  var dataJson = JSON.stringify(data);
 
   if (navigator.onLine) {
     google.script.run
@@ -256,12 +359,16 @@ function submitForm() {
   closeModal();
 
   var data       = collectFormData();
-  var dataJson   = JSON.stringify(data);
   var defectInfo = getDefectSummary(data);
 
   // 로컬 상태 즉시 반영
   state.records.forEach(function(r) {
-    if (r.recordId === currentRecordId) { r.status = '작성완료'; r.defectInfo = defectInfo; }
+    if (r.recordId === currentRecordId) {
+      r.status = '작성완료';
+      r.defectInfo = defectInfo;
+      r.writerId   = state.user.id;
+      r.writerName = state.user.name;
+    }
   });
 
   // 화면 전환 후 전체 로딩 — 서버 응답까지 카드 액션 차단
@@ -269,6 +376,34 @@ function submitForm() {
   document.getElementById('main-screen').classList.remove('hidden');
   renderLists();
   showLoading('서버 저장 중...');
+
+  // 주간 양식: saveWeeklyFormData로 해당 요일만 저장
+  if (WEEKLY_LOG_IDS.indexOf(currentLogInfo.logId) !== -1) {
+    if (!navigator.onLine) {
+      hideLoading();
+      showToast('오프라인에서는 주간 일지를 저장할 수 없습니다.', 'error');
+      return;
+    }
+    google.script.run
+      .withSuccessHandler(function(res) {
+        hideLoading();
+        if (res && res.success) {
+          showToast('저장 완료 ✔', 'success');
+          refreshRecords();
+        } else {
+          showToast('저장 실패: ' + (res && res.message || '서버 오류'), 'error');
+        }
+      })
+      .withFailureHandler(function() {
+        hideLoading();
+        showToast('네트워크가 불안정합니다. 다시 시도해주세요.', 'error');
+      })
+      .saveWeeklyFormData(currentRecordId, currentLogInfo.logId, data.dayKey,
+          JSON.stringify(data.items), defectInfo, state.user.id, state.user.name, false);
+    return;
+  }
+
+  var dataJson = JSON.stringify(data);
 
   function doSave() {
     google.script.run
@@ -286,7 +421,7 @@ function submitForm() {
         saveToQueue();
         showToast('오프라인 저장됨', 'info');
       })
-      .saveFormData(currentRecordId, currentLogInfo.logId, dataJson, defectInfo);
+      .saveFormData(currentRecordId, currentLogInfo.logId, dataJson, defectInfo, state.user.id, state.user.name);
   }
 
   function saveToQueue() {
@@ -318,7 +453,13 @@ function viewRecord(recordId, logId, title) {
       var rec = state.records.find(function(r) { return r.recordId === recordId; });
       var html = '';
 
-      if (rec && rec.logId === 'si0201' && typeof buildSi0201ViewHtml === 'function') {
+      if (rec && rec.logId === 'si0102hs' && typeof buildSi0102hsViewHtml === 'function') {
+        html = buildSi0102hsViewHtml(rec, res.dataJson, title, res);
+      } else if (rec && rec.logId === 'si0102dr' && typeof buildSi0102drViewHtml === 'function') {
+        html = buildSi0102drViewHtml(rec, res.dataJson, title, res);
+      } else if (rec && rec.logId === 'si0102wc' && typeof buildSi0102wcViewHtml === 'function') {
+        html = buildSi0102wcViewHtml(rec, res.dataJson, title, res);
+      } else if (rec && rec.logId === 'si0201' && typeof buildSi0201ViewHtml === 'function') {
         html = buildSi0201ViewHtml(rec, res.dataJson, title, res);
       } else {
         html = buildGenericViewHtml(rec, res.dataJson, title, res);
@@ -340,7 +481,10 @@ window.viewRecord = viewRecord;
  * - 각 칸: 역할명 / 이름 / 서명 / 날짜
  */
 function buildSigRowHtml(rec, sigRes) {
-  var writerSig   = state.user.signature && rec.writerId === state.user.id ? state.user.signature : '';
+  // 서버에서 가져온 서명 우선, 없으면 현재 로그인 사용자 서명 (본인 문서일 때)
+  var writerSig   = (sigRes && sigRes.writerSignature)
+    ? sigRes.writerSignature
+    : (state.user.signature && rec.writerId === state.user.id ? state.user.signature : '');
   var reviewerSig = (sigRes && sigRes.reviewerSignature) ? sigRes.reviewerSignature : '';
   var approverSig = (sigRes && sigRes.approverSignature) ? sigRes.approverSignature : '';
 

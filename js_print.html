@@ -4,8 +4,10 @@
 // ════════════════════════════════════════════════════════
 
 var printState = {
-  records:  [],   // 검색된 레코드 목록
-  selected: {}    // { recordId: true }
+  records:  [],        // 검색된 레코드 목록
+  selected: {},        // { recordId: true }
+  sortKey:  'name',   // 'name'(일지명) | 'date'
+  sortDirs: { name: 'asc', date: 'desc' }  // 키별 독립 방향
 };
 
 // ── 인쇄 선택 모달 열기 ────────────────────────────────
@@ -25,7 +27,15 @@ function openPrintModal() {
             ' style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;font-size:14px;">' +
         '</div>' +
       '</div>' +
-      '<button onclick="searchPrintRecords()" class="btn-primary" style="width:100%;margin-bottom:14px;">🔍 조회</button>' +
+      '<button onclick="searchPrintRecords()" class="btn-primary" style="width:100%;margin-bottom:10px;">🔍 조회</button>' +
+      // ── 정렬 바 (조회 후 표시) ──
+      '<div id="print-sort-bar" style="display:none;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">' +
+        '<span style="font-size:12px;color:#888;flex-shrink:0;">정렬</span>' +
+        '<button id="psort-name" onclick="setPrintSort(\'name\')"' +
+          ' style="padding:5px 12px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid #3498db;background:#3498db;color:#fff;">일지명순 ↑</button>' +
+        '<button id="psort-date" onclick="setPrintSort(\'date\')"' +
+          ' style="padding:5px 12px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid #ddd;background:#fff;color:#555;">날짜순</button>' +
+      '</div>' +
       '<div id="print-record-list"><p style="color:#aaa;text-align:center;padding:20px 0;">날짜를 선택하고 조회하세요.</p></div>' +
       '<div id="print-action-bar" class="hidden" style="display:flex;gap:8px;margin-top:12px;">' +
         '<button onclick="toggleSelectAllPrint()" id="print-select-all-btn"' +
@@ -35,7 +45,38 @@ function openPrintModal() {
       '</div>' +
     '</div>';
 
-  openModal('인쇄할 일지 선택', html);
+  openModal('인쇄할 일지 선택', html, true);
+}
+
+// ── 정렬 키 변경 (같은 키 재클릭 시 방향 토글) ────────
+function setPrintSort(key) {
+  if (printState.sortKey === key) {
+    printState.sortDirs[key] = printState.sortDirs[key] === 'asc' ? 'desc' : 'asc';
+  } else {
+    printState.sortKey = key;
+  }
+  var listEl   = document.getElementById('print-record-list');
+  var actionEl = document.getElementById('print-action-bar');
+  renderPrintList(listEl, actionEl);
+}
+
+// ── 정렬 바 버튼 상태 갱신 ────────────────────────────
+function _updatePrintSortUI() {
+  var nameBtn = document.getElementById('psort-name');
+  var dateBtn = document.getElementById('psort-date');
+  if (!nameBtn) return;
+
+  var activeStyle   = 'padding:5px 12px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid #3498db;background:#3498db;color:#fff;';
+  var inactiveStyle = 'padding:5px 12px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid #ddd;background:#fff;color:#555;';
+
+  var nameActive = printState.sortKey === 'name';
+  var dateActive = printState.sortKey === 'date';
+
+  nameBtn.style.cssText = nameActive ? activeStyle : inactiveStyle;
+  nameBtn.textContent   = '일지명순 ' + (nameActive ? (printState.sortDirs.name === 'asc' ? '↑' : '↓') : '');
+
+  dateBtn.style.cssText = dateActive ? activeStyle : inactiveStyle;
+  dateBtn.textContent   = '날짜순 '  + (dateActive ? (printState.sortDirs.date === 'asc' ? '↑' : '↓') : '');
 }
 
 // ── 레코드 조회 ────────────────────────────────────────
@@ -52,6 +93,10 @@ function searchPrintRecords() {
   var listEl   = document.getElementById('print-record-list');
   var actionEl = document.getElementById('print-action-bar');
   listEl.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px 0;">조회 중...</p>';
+
+  // 정렬 상태 초기화 (일지명 오름차순, 동일명은 최신 먼저)
+  printState.sortKey  = 'name';
+  printState.sortDirs = { name: 'asc', date: 'desc' };
 
   var factoryId = state.currentFactory || 'pb2';
   google.script.run
@@ -74,11 +119,32 @@ function renderPrintList(listEl, actionEl) {
     return;
   }
 
+  // ── 정렬 ──────────────────────────────────────────────
+  var d = printState.sortDirs[printState.sortKey] === 'asc' ? 1 : -1;
+  var sorted = recs.slice().sort(function(a, b) {
+    if (printState.sortKey === 'date') {
+      // 날짜 기준 정렬, 동일 날짜면 일지명 오름차순
+      if (a.date !== b.date) return a.date < b.date ? -d : d;
+      var ta = a.title || '', tb = b.title || '';
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    } else {
+      // 일지명 기준 정렬, 동일 제목은 날짜 내림차순(최신 먼저) 고정
+      var ta = a.title || '', tb = b.title || '';
+      if (ta !== tb) return ta < tb ? -d : d;
+      return a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
+    }
+  });
+
+  // ── 정렬 바 표시 및 버튼 상태 갱신 ──────────────────
+  var sortBar = document.getElementById('print-sort-bar');
+  if (sortBar) sortBar.style.display = 'flex';
+  _updatePrintSortUI();
+
   var statusLabel = { '작성중':'작성중', '작성완료':'작성완료', '검토완료':'검토완료', '승인완료':'승인완료' };
   var statusColor = { '작성중':'var(--warning)', '작성완료':'var(--status-write)', '검토완료':'var(--status-review)', '승인완료':'var(--success)' };
 
   var html = '<div style="display:flex;flex-direction:column;gap:8px;">';
-  recs.forEach(function(rec) {
+  sorted.forEach(function(rec) {
     var checked = printState.selected[rec.recordId] ? 'checked' : '';
     var color   = statusColor[rec.status] || '#888';
     var label   = statusLabel[rec.status] || rec.status;
@@ -115,16 +181,6 @@ function toggleSelectAllPrint() {
   } else {
     recs.forEach(function(r) { printState.selected[r.recordId] = true; });
   }
-  // 체크박스 UI 업데이트
-  recs.forEach(function(r) {
-    var inputs = document.querySelectorAll('input[type="checkbox"]');
-    inputs.forEach(function(inp) {
-      if (inp.onchange && inp.onchange.toString().indexOf(r.recordId) !== -1) {
-        inp.checked = !!printState.selected[r.recordId];
-      }
-    });
-  });
-  // listEl 다시 렌더
   var listEl   = document.getElementById('print-record-list');
   var actionEl = document.getElementById('print-action-bar');
   renderPrintList(listEl, actionEl);
@@ -154,25 +210,41 @@ function executePrint() {
           var printHtml = '';
           if (rec.logId === 'si0201') {
             printHtml = buildSi0201PrintHtml(rec, res.dataJson, res);
+          } else if (rec.logId === 'si0102hs') {
+            printHtml = buildSi0102hsPrintHtml(rec, res.dataJson, res);
+          } else if (rec.logId === 'si0102dr') {
+            printHtml = buildSi0102drPrintHtml(rec, res.dataJson, res);
+          } else if (rec.logId === 'si0102wc') {
+            printHtml = buildSi0102wcPrintHtml(rec, res.dataJson, res);
           }
-          allHtml.push({ date: rec.date, recordId: rec.recordId, html: printHtml });
+          allHtml.push({ date: rec.date, title: rec.title, writerName: rec.writerName, recordId: rec.recordId, html: printHtml });
         }
         remaining--;
-        if (remaining === 0) {
-          // 날짜순 정렬
-          allHtml.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-          showPrintOverlay(allHtml.map(function(h) { return h.html; }).join(''));
-        }
+        if (remaining === 0) { _flushPrintOverlay(allHtml); }
       })
       .withFailureHandler(function(e) {
         remaining--;
-        if (remaining === 0) {
-          allHtml.sort(function(a, b) { return a.date < b.date ? -1 : 1; });
-          showPrintOverlay(allHtml.map(function(h) { return h.html; }).join(''));
-        }
+        if (remaining === 0) { _flushPrintOverlay(allHtml); }
       })
       .getRecordDetail(rec.recordId, rec.logId);
   });
+}
+
+// 인쇄 오버레이로 보낼 때도 현재 정렬 적용
+function _flushPrintOverlay(allHtml) {
+  var d = printState.sortDirs[printState.sortKey] === 'asc' ? 1 : -1;
+  allHtml.sort(function(a, b) {
+    if (printState.sortKey === 'date') {
+      if (a.date !== b.date) return a.date < b.date ? -d : d;
+      var ta = a.title || '', tb = b.title || '';
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    } else {
+      var ta = a.title || '', tb = b.title || '';
+      if (ta !== tb) return ta < tb ? -d : d;
+      return a.date < b.date ? 1 : a.date > b.date ? -1 : 0;
+    }
+  });
+  showPrintOverlay(allHtml.map(function(h) { return h.html; }).join(''));
 }
 
 // ── 결재란 텍스트 넘침 자동 축소 ────────────────────────

@@ -54,17 +54,9 @@
 
     <header class="common-header">
       <div class="header-left">
+        <!-- 로고: 관리자는 600ms 꾹 누르면 사후작성 모달 열림 -->
         <div id="logo-container-main"
-          style="margin-right:12px;font-weight:bold;font-size:18px;color:var(--primary);"></div>
-        <!-- 관리자 전용 버튼 (권한3 이상에게만 표시) -->
-        <button id="admin-post-btn" class="hidden" onclick="openPostWriter()"
-          style="background:var(--danger);color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;margin-right:5px;">
-          🚨 사후작성
-        </button>
-        <button onclick="runTestDataSetup()"
-          style="background:var(--warning);color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;">
-          테스트
-        </button>
+          style="margin-right:12px;font-weight:bold;font-size:18px;color:var(--primary);cursor:pointer;user-select:none;-webkit-user-select:none;"></div>
         <button id="print-btn" onclick="openPrintModal()"
           style="background:var(--accent);color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;margin-left:4px;">
           🖨 인쇄
@@ -131,6 +123,12 @@
           <button class="sub-filter-btn" onclick="filterDoneList('completed',this)"
             onpointerdown="startPress(event,'REVOKE_MODE')" onpointerup="cancelPress()" onpointerleave="cancelPress()">
             최종 완료
+          </button>
+          <button id="revoke-request-tab" class="sub-filter-btn hidden" onclick="filterDoneList('revoke-request',this)" style="color:#c0392b;font-weight:bold;">
+            취소요청 <span id="revoke-request-count" style="background:#c0392b;color:white;border-radius:10px;padding:1px 6px;font-size:11px;margin-left:2px;"></span>
+          </button>
+          <button id="review-cancel-request-tab" class="sub-filter-btn hidden" onclick="filterDoneList('review-cancel-request',this)" style="color:#8e44ad;font-weight:bold;">
+            검토취소요청 <span id="review-cancel-request-count" style="background:#8e44ad;color:white;border-radius:10px;padding:1px 6px;font-size:11px;margin-left:2px;"></span>
           </button>
         </div>
         <div id="done-list" class="done-list-container"></div>
@@ -281,7 +279,10 @@
 <!-- 인쇄 공통 템플릿 (모든 양식 공유) -->
 <?!= include('js_print_template'); ?>
 <!-- 일지별 파일 (새 일지 추가 시 여기에 추가) -->
-<?!= include('log_si0201'); ?>
+<?!= include('log_pb2_si0201'); ?>
+<?!= include('log_pb2_si0102hs'); ?>
+<?!= include('log_pb2_si0102dr'); ?>
+<?!= include('log_pb2_si0102wc'); ?>
 
 <!-- 인쇄/PDF -->
 <?!= include('js_print'); ?>

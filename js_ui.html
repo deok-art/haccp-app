@@ -511,6 +511,12 @@ function editUserCard(userId) {
     var isDeputy = (user.factoryDeputies || {})[f.id] !== undefined;
     var curVal  = isDeputy ? 'dep' : String(cur);
 
+    // 이 공장의 현재 팀장·팀장대행 찾기
+    var leaderUser = _umUsers.find(function(u) { return parseInt((u.factoryRoles || {})[f.id] || 0) === 3; });
+    var deputyUser = _umUsers.find(function(u) { return (u.factoryDeputies || {})[f.id] !== undefined; });
+    var leaderName = leaderUser ? leaderUser.name : '—';
+    var deputyName = deputyUser ? deputyUser.name : '없음';
+
     var roleOpts = [
       { val: '0',   label: '없음'    },
       { val: '1',   label: '작성자'  },
@@ -532,7 +538,13 @@ function editUserCard(userId) {
 
     return '<div class="um-factory-row" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">' +
       '<span style="font-size:12px;color:#555;width:80px;flex-shrink:0;">' + f.name + '</span>' +
-      '<div style="flex:1;">' + selectHtml + '</div>' +
+      '<div style="flex:1;">' +
+        selectHtml +
+        '<div style="font-size:11px;color:#999;margin-top:4px;">' +
+          '팀장 <b style="color:#2980b9;">' + leaderName + '</b>' +
+          ' &nbsp;·&nbsp; 대행 <b style="color:#e67e22;">' + deputyName + '</b>' +
+        '</div>' +
+      '</div>' +
     '</div>';
   }).join('');
 
@@ -613,22 +625,13 @@ function saveUserCard(btn, targetId) {
     .updateUserInfo(state.user.id, targetId, updates);
 }
 
-// ── 관리자 기능 ────────────────────────────────────────
-function runTestDataSetup() {
-  if (!confirm('테스트 일지 5종을 생성합니다.')) return;
-  showLoading('세팅 중...');
-  google.script.run
-    .withSuccessHandler(function() { showToast('세팅 완료!', 'success'); loadData(); switchTab('done'); })
-    .generateTestRecords();
-}
-
 // ⑤ 사후작성 — 날짜 선택 시 미작성 일지 목록 표시, 체크 선택 후 일괄생성
 function openPostWriter() {
   openModal('🗂 사후 작성 생성',
     '<p style="font-size:12px;color:#e74c3c;margin:0 0 12px;">* 관리자 전용: 과거 날짜 일지 생성</p>' +
     '<div style="margin-bottom:12px;">' +
       '<label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">날짜 선택</label>' +
-      '<input type="date" id="post-date" class="input-field" style="margin:0;" value="' + state.serverToday + '" onchange="loadPostWriterLogs()">' +
+      '<input type="date" id="post-date" class="input-field" style="margin:0;" value="' + state.serverToday + '" max="' + state.serverToday + '" onchange="loadPostWriterLogs()">' +
     '</div>' +
     '<div id="post-log-list" style="margin-bottom:12px;"></div>' +
     '<button onclick="executePostCreateBatch()" class="btn-primary" style="background:var(--success);">✔ 선택 일지 생성</button>',

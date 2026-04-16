@@ -302,8 +302,11 @@ function setupLogs() {
   if (!sheet) { Logger.log('Logs 시트 없음'); return; }
 
   const LOG_ENTRIES = [
-    // logId        | title              | interval | summerFreq | winterFreq | docNo              | version | factoryId
-    ['si0201', '이물관리 점검표',       '일간',   1,          1,          'PBⅡ-SI-02-01', '1.0', 'pb2'],
+    // logId        | title                      | interval | summerFreq | winterFreq | docNo              | version | factoryId
+    ['si0201',   '이물관리 점검표',              '일간',   1,          1,          'PBⅡ-SI-02-01', '1.0', 'pb2'],
+    ['si0102hs', '부대시설 위생점검 일지(위생전실)', '주간', 1,          1,          'PBⅡ-SI-01-02', '1.0', 'pb2'],
+    ['si0102dr', '부대시설 위생점검 일지(탈의실)',   '주간', 1,          1,          'PBⅡ-SI-01-02', '1.0', 'pb2'],
+    ['si0102wc', '부대시설 위생점검 일지(화장실)',   '주간', 1,          1,          'PBⅡ-SI-01-02', '1.0', 'pb2'],
   ];
 
   const data      = sheet.getDataRange().getValues();
@@ -639,28 +642,18 @@ function parseFactoryRolesInternal(raw) {
  */
 function getRecordDetail(recordId, logId) {
   try {
-    const sheet = SS.getSheetByName('Log_' + logId);
-    if (!sheet) return { success: false, message: '시트 없음' };
+    const master = SS.getSheetByName('MasterRecords');
+    if (!master) return { success: false, message: 'MasterRecords 시트 없음' };
 
-    const data = sheet.getDataRange().getValues();
+    const data = master.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
       if (String(data[i][0]) !== recordId) continue;
 
-      // MasterRecords에서 작성자/검토자/승인자 정보 조회
-      const master     = SS.getSheetByName('MasterRecords');
-      let writerId = '', writerName = '', reviewerName = '', approverName = '';
-      if (master) {
-        const mData = master.getDataRange().getValues();
-        for (let j = 1; j < mData.length; j++) {
-          if (String(mData[j][0]) === recordId) {
-            writerId     = String(mData[j][4] || '');
-            writerName   = String(mData[j][5] || '');
-            reviewerName = String(mData[j][6] || '');
-            approverName = String(mData[j][7] || '');
-            break;
-          }
-        }
-      }
+      const writerId     = String(data[i][4]  || '');
+      const writerName   = String(data[i][5]  || '');
+      const reviewerName = String(data[i][6]  || '');
+      const approverName = String(data[i][7]  || '');
+      const dataJson     = String(data[i][15] || '{}'); // col16: DataJson (index 15)
 
       // 작성자 서명: ID 우선, 없으면 이름으로 폴백
       const writerSignature = writerId
@@ -669,7 +662,7 @@ function getRecordDetail(recordId, logId) {
 
       return {
         success:           true,
-        dataJson:          String(data[i][3]),
+        dataJson:          dataJson,
         writerId:          writerId,
         writerName:        writerName,
         reviewerName:      reviewerName,
@@ -766,4 +759,67 @@ function generateTestRecords() {
   });
 
   return { success: true };
+}
+
+/**
+ * [최초 1회 실행] MasterRecords에 DataJson 컬럼(16번째) 추가 및 기존 Log_xxx 시트 데이터 마이그레이션
+ * - MasterRecords 헤더에 DataJson 컬럼이 없으면 추가
+ * - 기존 Log_xxx 시트에서 각 레코드의 DataJson을 MasterRecords col16으로 이전
+ * - 이미 col16에 값이 있는 행은 건너뜀 (멱등성 보장)
+ */
+function setupMigrateToMaster() {
+  const master = SS.getSheetByName('MasterRecords');
+  if (!master) {
+    Logger.log('[MigrateToMaster] MasterRecords 시트 없음 — 중단');
+    return;
+  }
+
+  // 헤더 행에 DataJson 컬럼 추가 (col16이 비어있을 경우)
+  const header = master.getRange(1, 1, 1, master.getLastColumn()).getValues()[0];
+  if (header.length < 16 || !header[15]) {
+    master.getRange(1, 16).setValue('DataJson');
+    Logger.log('[MigrateToMaster] 헤더에 DataJson 컬럼 추가');
+  }
+
+  const data   = master.getDataRange().getValues();
+  let migrated = 0;
+  let skipped  = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    const recordId = String(data[i][0] || '');
+    const logId    = String(data[i][1] || '');
+    if (!recordId || !logId) continue;
+
+    // 이미 col16에 값이 있으면 건너뜀
+    if (data[i][15] && String(data[i][15]).trim() !== '' && String(data[i][15]) !== '{}') {
+      skipped++;
+      continue;
+    }
+
+    // 기존 Log_xxx 시트에서 DataJson 조회
+    const logSheet = SS.getSheetByName('Log_' + logId);
+    if (!logSheet) {
+      master.getRange(i + 1, 16).setValue('{}');
+      migrated++;
+      continue;
+    }
+
+    const logData = logSheet.getDataRange().getValues();
+    let found = false;
+    for (let j = 1; j < logData.length; j++) {
+      if (String(logData[j][0]) === recordId) {
+        const json = String(logData[j][3] || '{}');
+        master.getRange(i + 1, 16).setValue(json);
+        migrated++;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      master.getRange(i + 1, 16).setValue('{}');
+      migrated++;
+    }
+  }
+
+  Logger.log('[MigrateToMaster] 완료 — 마이그레이션: ' + migrated + '건, 건너뜀: ' + skipped + '건');
 }

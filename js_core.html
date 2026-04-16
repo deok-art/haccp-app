@@ -224,6 +224,8 @@ function loadData() {
       state.userMeta    = res.userMeta || {};
       renderBaseUI();
       checkSession();
+      // 앱 시작 시 오프라인 큐에 남은 데이터 자동 동기화
+      if (navigator.onLine) flushQueue();
     })
     .withFailureHandler(function() {
       alert('데이터 로드 실패!');
@@ -452,12 +454,26 @@ function showFactorySelectScreen(factories) {
 function enterFactory(factoryId) {
   state.currentFactory = factoryId;
 
-  // 관리자 버튼: 현재 공장 권한3 이상 또는 마스터면 표시
+  // 로고 꾹 누르기(600ms) → 사후작성 모달 (관리자 전용, 최초 1회만 등록)
   var role = getCurrentRole();
-  var adminBtn = document.getElementById('admin-post-btn');
-  if (adminBtn) {
-    if (role >= 3 || state.user.isMaster) adminBtn.classList.remove('hidden');
-    else                                  adminBtn.classList.add('hidden');
+  if (!window._logoLPInit) {
+    window._logoLPInit = true;
+    var _logoEl = document.getElementById('logo-container-main');
+    if (_logoEl) {
+      var _lpTimer = null;
+      function _lpFire() {
+        var r = getCurrentRole();
+        if (r >= 3 || (state.user && state.user.isMaster)) openPostWriter();
+      }
+      function _lpStart() { _lpTimer = setTimeout(_lpFire, 600); }
+      function _lpCancel() { clearTimeout(_lpTimer); }
+      _logoEl.addEventListener('touchstart',  _lpStart,  {passive:true});
+      _logoEl.addEventListener('touchend',    _lpCancel);
+      _logoEl.addEventListener('touchmove',   _lpCancel);
+      _logoEl.addEventListener('mousedown',   _lpStart);
+      _logoEl.addEventListener('mouseup',     _lpCancel);
+      _logoEl.addEventListener('mouseleave',  _lpCancel);
+    }
   }
 
   // 사용자 관리 버튼: 팀장대행은 제외 (사용자관리 권한 없음)
@@ -492,6 +508,30 @@ function enterFactory(factoryId) {
 
   if (state.noticeHidden) document.getElementById('notice-box').style.display = 'none';
   renderLists();
+
+  // 취소요청 건수 알림 (권한별)
+  var myRoles = (state.user && state.user.factoryRoles) ? state.user.factoryRoles : {};
+  var myRole = parseInt(myRoles[state.currentFactory] || 0);
+  if (myRole >= 3) {
+    var revokeReqCount = (state.records || []).filter(function(r) {
+      return r.status === '취소요청' && (myRoles[r.factoryId] || 0) >= 3;
+    }).length;
+    if (revokeReqCount > 0) {
+      setTimeout(function() {
+        showToast('승인취소 요청 ' + revokeReqCount + '건이 있습니다.', 'warning');
+      }, 800);
+    }
+  }
+  if (myRole >= 2) {
+    var reviewCancelReqCount = (state.records || []).filter(function(r) {
+      return r.status === '검토취소요청' && (myRoles[r.factoryId] || 0) >= 2;
+    }).length;
+    if (reviewCancelReqCount > 0) {
+      setTimeout(function() {
+        showToast('검토취소 요청 ' + reviewCancelReqCount + '건이 있습니다.', 'warning');
+      }, 1200);
+    }
+  }
 }
 
 /**

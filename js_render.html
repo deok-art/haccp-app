@@ -22,13 +22,27 @@ function renderTodoList() {
   // 현재 공장 일지만 필터링
   var currentFactory = state.currentFactory;
 
-  var writingRecs = state.records.filter(function(r) {
-    // 사후작성(과거 날짜)으로 생성된 작성중 문서도 여기서 노출되도록 날짜 조건 제거
-    return r.status === '작성중' && (r.factoryId || 'pb2') === currentFactory;
+  // 미처리 레코드: 작성중 + 미작성 (사후작성 포함, 날짜 무관)
+  var pendingRecs = state.records.filter(function(r) {
+    return (r.status === '작성중' || r.status === '미작성') &&
+           (r.factoryId || 'pb2') === currentFactory;
   });
-  var writingIds = writingRecs.map(function(r) { return r.logId; });
-  var doneIds    = state.records
-    .filter(function(r) { return r.date === state.serverToday && r.status !== '작성중' && (r.factoryId || 'pb2') === currentFactory; })
+
+  // 중복 체크: 같은 날짜+logId에 2개 이상 레코드 (상태 무관, 작성완료 포함)
+  var allKeyCount = {};
+  state.records
+    .filter(function(r) { return (r.factoryId || 'pb2') === currentFactory; })
+    .forEach(function(r) {
+      var key = r.logId + '|' + r.date;
+      allKeyCount[key] = (allKeyCount[key] || 0) + 1;
+    });
+  // 오늘 이미 레코드가 존재하는 logId (중복 생성 방지)
+  var todayLogIds = state.records
+    .filter(function(r) { return r.date === state.serverToday && (r.factoryId || 'pb2') === currentFactory; })
+    .map(function(r) { return r.logId; });
+  // 오늘 작성 완료된 logId (미작성 카드 숨김용)
+  var doneIds = state.records
+    .filter(function(r) { return r.date === state.serverToday && r.status !== '작성중' && r.status !== '미작성' && (r.factoryId || 'pb2') === currentFactory; })
     .map(function(r) { return r.logId; });
 
   var totalCount = 0;
@@ -50,21 +64,26 @@ function renderTodoList() {
     section.appendChild(header);
 
     logsInGroup.forEach(function(log) {
-      var recsForLog = writingRecs
+      var recsForLog = pendingRecs
         .filter(function(r) { return r.logId === log.id; })
         .sort(function(a, b) { return String(b.date).localeCompare(String(a.date)); });
 
-      // 같은 일지라도 날짜가 다르면 각각 수정 가능해야 하므로 작성중 카드를 날짜별로 모두 표시
-      if (recsForLog.length > 0) {
-        recsForLog.forEach(function(rec) {
-          var card = document.createElement('div');
+      // 미처리 레코드를 날짜별로 각각 카드 표시 (작성중 / 미작성 구분)
+      recsForLog.forEach(function(rec) {
+        var card = document.createElement('div');
+        var isDuplicate = allKeyCount[rec.logId + '|' + rec.date] > 1;
+        var deleteBtn = isDuplicate
+          ? '<button class="btn-ghost btn-ghost-danger" style="font-size:11px;padding:4px 8px;margin-top:4px;" ' +
+              'onclick="event.stopPropagation();deleteRecord(\'' + rec.recordId + '\',\'' + log.title + '\')">🗑 삭제</button>'
+          : '';
+
+        if (rec.status === '작성중') {
           card.className = 'log-card writing';
           card.id        = 'log-card-' + rec.recordId;
-
           var actionHtml =
             '<button class="action-btn btn-submit" onclick="event.stopPropagation();openForm(\'' +
-              rec.recordId + '\',\'' + log.id + '\',\'' + log.title + '\',\'' + rec.date + '\')">✏️ 수정하기</button>';
-
+              rec.recordId + '\',\'' + log.id + '\',\'' + log.title + '\',\'' + rec.date + '\')">✏️ 수정하기</button>' +
+            deleteBtn;
           card.innerHTML =
             '<div class="status-dot writing"></div>' +
             '<div class="log-card-body">' +
@@ -72,15 +91,27 @@ function renderTodoList() {
               '<div class="log-card-sub">✏️ 작성 중 · ' + rec.date + '</div>' +
             '</div>' +
             '<div class="log-card-action" id="card-action-' + rec.recordId + '">' + actionHtml + '</div>';
+        } else {
+          // 미작성 플레이스홀더 — 클릭 시 startNewLog (서버가 플레이스홀더 재사용)
+          card.className = 'log-card unstarted';
+          card.id        = 'log-card-' + rec.recordId;
+          card.innerHTML =
+            '<div class="status-dot unstarted"></div>' +
+            '<div class="log-card-body">' +
+              '<div class="log-card-title">' + log.title + '</div>' +
+              '<div class="log-card-sub">⬜ 미작성 · ' + rec.date + '</div>' +
+            '</div>' +
+            '<div class="log-card-action" id="card-action-' + rec.recordId + '">' + deleteBtn + '</div>';
+          card.onclick = (function(logId, title, cardElem) {
+            return function() { startNewLog(logId, title, cardElem); };
+          })(log.id, log.title, card);
+        }
+        section.appendChild(card);
+        totalCount++;
+      });
 
-          section.appendChild(card);
-          totalCount++;
-        });
-        return;
-      }
-
-      // 작성중이 없고, 오늘 완료본이 있으면 미작성 카드 숨김
-      if (doneIds.includes(log.id)) return;
+      // 오늘 레코드가 없고 완료도 아니면 → 새 미작성 카드 표시 (오늘 작성 시작)
+      if (todayLogIds.indexOf(log.id) !== -1 || doneIds.indexOf(log.id) !== -1) return;
 
       var card = document.createElement('div');
       card.className = 'log-card unstarted';
@@ -151,7 +182,7 @@ function renderDoneList() {
 
   // 결재 탭: 권한 있는 모든 공장 일지 표시
   var recs = state.records.filter(function(r) {
-    return r.status !== '작성중' && (userRoles[r.factoryId] || 0) >= 1;
+    return r.status !== '작성중' && r.status !== '미작성' && (userRoles[r.factoryId] || 0) >= 1;
   });
 
   var currentRole = getCurrentRole();
@@ -166,12 +197,49 @@ function renderDoneList() {
     });
   } else if (state.currentFilter === 'completed') {
     recs = recs.filter(function(r) { return r.status === '승인완료'; });
+  } else if (state.currentFilter === 'revoke-request') {
+    recs = recs.filter(function(r) { return r.status === '취소요청'; });
+  } else if (state.currentFilter === 'review-cancel-request') {
+    recs = recs.filter(function(r) { return r.status === '검토취소요청'; });
+  }
+
+  // 취소요청 탭: 권한3 사용자에게만 표시 + 건수 배지
+  var revokeTab = document.getElementById('revoke-request-tab');
+  var revokeCountEl = document.getElementById('revoke-request-count');
+  if (revokeTab) {
+    var revokeCount = state.records.filter(function(r) {
+      return r.status === '취소요청' && (userRoles[r.factoryId] || 0) >= 3;
+    }).length;
+    if (currentRole >= 3 && revokeCount > 0) {
+      revokeTab.classList.remove('hidden');
+      if (revokeCountEl) revokeCountEl.innerText = revokeCount;
+    } else {
+      revokeTab.classList.add('hidden');
+    }
+  }
+
+  // 검토취소요청 탭: 권한2 이상에게 표시 + 건수 배지
+  var reviewCancelTab = document.getElementById('review-cancel-request-tab');
+  var reviewCancelCountEl = document.getElementById('review-cancel-request-count');
+  if (reviewCancelTab) {
+    var reviewCancelCount = state.records.filter(function(r) {
+      return r.status === '검토취소요청' && (userRoles[r.factoryId] || 0) >= 2;
+    }).length;
+    if (currentRole >= 2 && reviewCancelCount > 0) {
+      reviewCancelTab.classList.remove('hidden');
+      if (reviewCancelCountEl) reviewCancelCountEl.innerText = reviewCancelCount;
+    } else {
+      reviewCancelTab.classList.add('hidden');
+    }
   }
 
   if (!recs.length) {
     list.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">해당하는 일지가 없습니다.</p>';
     document.getElementById('done-count').innerText =
-      state.records.filter(function(r) { return r.status !== '작성중'; }).length;
+      state.records.filter(function(r) {
+        return (r.status === '작성완료' || r.status === '검토완료' || r.status === '취소요청' || r.status === '검토취소요청') &&
+               (userRoles[r.factoryId] || 0) >= 1;
+      }).length;
     return;
   }
 
@@ -192,7 +260,10 @@ function renderDoneList() {
   });
 
   document.getElementById('done-count').innerText =
-    state.records.filter(function(r) { return r.status !== '작성중'; }).length;
+    state.records.filter(function(r) {
+      return (r.status === '작성완료' || r.status === '검토완료' || r.status === '취소요청') &&
+             (userRoles[r.factoryId] || 0) >= 1;
+    }).length;
 }
 
 /**
@@ -230,11 +301,13 @@ function buildDoneCard(rec) {
   // 스테퍼
   var s1 = 'step step-write';
   var hasReviewer = rec.reviewer && rec.reviewer !== '' && rec.reviewer !== '-';
-  var s2 = (hasReviewer && (rec.status === '검토완료' || rec.status === '승인완료')) ? 'step step-review' : 'step';
+  var s2 = (hasReviewer && (rec.status === '검토완료' || rec.status === '검토취소요청' || rec.status === '승인완료')) ? 'step step-review' : 'step';
   var s3 = rec.status === '승인완료' ? 'step step-approve' : 'step';
 
   var badgeColor = rec.status === '승인완료' ? '#27ae60'
                  : rec.status === '검토완료' ? '#2980b9'
+                 : rec.status === '취소요청' ? '#c0392b'
+                 : rec.status === '검토취소요청' ? '#8e44ad'
                  : '#e67e22';
 
   var btns = '';
@@ -249,8 +322,8 @@ function buildDoneCard(rec) {
       btns += '<button class="action-btn btn-review" onclick="doAction(\'' + rec.recordId + '\',\'REVIEW\',\'' + rec.title + '\')">검토</button>';
     }
 
-    // 검토취소 — 검토완료 상태 + (본인이 검토했거나 권한3)
-    if (rec.status === '검토완료') {
+    // 검토취소 — 검토완료/검토취소요청 상태 + (본인이 검토했거나 권한3)
+    if (rec.status === '검토완료' || rec.status === '검토취소요청') {
       var canCancelReview = role >= 3 || (role >= 2 && rec.reviewer === state.user.name);
       if (canCancelReview) {
         btns += '<button class="btn-ghost btn-ghost-review" onclick="doAction(\'' + rec.recordId + '\',\'CANCEL_REVIEW\',\'' + rec.title + '\')">검토취소</button>';
@@ -262,14 +335,54 @@ function buildDoneCard(rec) {
       btns += '<button class="action-btn btn-approve" onclick="doAction(\'' + rec.recordId + '\',\'APPROVE\',\'' + rec.title + '\')">승인</button>';
     }
 
-    // 승인취소 — 권한3, 승인완료 상태
-    if (role >= 3 && rec.status === '승인완료') {
+    // 승인취소 — 권한3, 승인완료 또는 취소요청 상태
+    if (role >= 3 && (rec.status === '승인완료' || rec.status === '취소요청')) {
       btns += '<button class="btn-ghost btn-ghost-approve" onclick="doAction(\'' + rec.recordId + '\',\'REVOKE\',\'' + rec.title + '\')">승인취소</button>';
     }
 
     // 작성취소 — 작성완료 상태 + 본인 작성 문서만 (작성중으로 복귀, 서명 초기화)
     if (rec.status === '작성완료' && rec.writerId === state.user.id) {
       btns += '<button class="btn-ghost btn-ghost-danger" onclick="doAction(\'' + rec.recordId + '\',\'CANCEL\',\'' + rec.title + '\')">작성취소</button>';
+    }
+
+    // 취소요청 — 권한1, 승인완료 상태, 본인 문서 (권한2 이상은 직접 승인취소 가능)
+    if (role === 1 && rec.status === '승인완료' && rec.writerId === state.user.id) {
+      btns += '<button class="btn-ghost btn-ghost-danger" onclick="doAction(\'' + rec.recordId + '\',\'REQUEST_REVOKE\',\'' + rec.title + '\')">취소요청</button>';
+    }
+
+    // 취소요청 상태: 본인은 요청취소, 권한3은 반려 가능
+    if (rec.status === '취소요청') {
+      if (rec.writerId === state.user.id) {
+        btns += '<button class="btn-ghost" onclick="doAction(\'' + rec.recordId + '\',\'CANCEL_REVOKE_REQUEST\',\'' + rec.title + '\')">요청취소</button>';
+      }
+      if (role >= 3) {
+        btns += '<button class="btn-ghost btn-ghost-danger" onclick="doAction(\'' + rec.recordId + '\',\'REJECT_REVOKE_REQUEST\',\'' + rec.title + '\')">요청반려</button>';
+      }
+    }
+
+    // 검토취소요청 — 권한1, 검토완료 상태, 본인 문서 (권한2 이상은 직접 검토취소 가능)
+    if (rec.status === '검토완료' && rec.writerId === state.user.id && role === 1) {
+      btns += '<button class="btn-ghost btn-ghost-danger" onclick="doAction(\'' + rec.recordId + '\',\'REQUEST_REVIEW_CANCEL\',\'' + rec.title + '\')">검토취소요청</button>';
+    }
+
+    // 검토취소요청 상태: 본인은 요청취소, 검토취소 가능한 사람(본인이 검토했거나 권한3)만 반려 가능
+    if (rec.status === '검토취소요청') {
+      if (rec.writerId === state.user.id) {
+        btns += '<button class="btn-ghost" onclick="doAction(\'' + rec.recordId + '\',\'CANCEL_REVIEW_CANCEL_REQUEST\',\'' + rec.title + '\')">요청취소</button>';
+      }
+      if (role >= 3 || (role >= 2 && rec.reviewer === state.user.name)) {
+        btns += '<button class="btn-ghost btn-ghost-danger" onclick="doAction(\'' + rec.recordId + '\',\'REJECT_REVIEW_CANCEL_REQUEST\',\'' + rec.title + '\')">요청반려</button>';
+      }
+    }
+
+    // 삭제 — 작성완료 상태, 본인 문서, 같은 날짜+logId에 중복 레코드 존재
+    if (rec.status === '작성완료' && rec.writerId === state.user.id) {
+      var isDupDone = state.records.filter(function(r) {
+        return r.logId === rec.logId && r.date === rec.date;
+      }).length > 1;
+      if (isDupDone) {
+        btns += '<button class="btn-ghost btn-ghost-danger" onclick="deleteRecord(\'' + rec.recordId + '\',\'' + rec.title + '\')">🗑 삭제</button>';
+      }
     }
   }
 
@@ -300,15 +413,45 @@ function buildDoneCard(rec) {
 }
 
 /**
+ * 미작성/작성중 일지 삭제
+ */
+function deleteRecord(recordId, title) {
+  if (!confirm('[' + title + '] 이 일지를 삭제하시겠습니까?\n삭제 후 복구할 수 없습니다.')) return;
+  showLoading('삭제 중...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      hideLoading();
+      if (res.success) {
+        state.records = state.records.filter(function(r) { return r.recordId !== recordId; });
+        renderLists();
+        showToast('삭제 완료', 'success');
+      } else {
+        showToast(res.message || '삭제 실패', 'error');
+      }
+    })
+    .withFailureHandler(function() {
+      hideLoading();
+      showToast('서버 통신 오류', 'error');
+    })
+    .deleteRecord(recordId);
+}
+
+/**
  * 단건 결재 액션 실행
  */
 function doAction(recordId, action, title) {
   var msgs = {
-    CANCEL:        '작성을 취소하시겠습니까? 작성중 상태로 돌아갑니다.',
-    REVIEW:        '검토 처리하시겠습니까?',
-    CANCEL_REVIEW: '검토를 취소하시겠습니까?',
-    APPROVE:       '승인 처리하시겠습니까?',
-    REVOKE:        '승인을 취소하시겠습니까?'
+    CANCEL:                      '작성을 취소하시겠습니까? 작성중 상태로 돌아갑니다.',
+    REVIEW:                      '검토 처리하시겠습니까?',
+    CANCEL_REVIEW:               '검토를 취소하시겠습니까?',
+    APPROVE:                     '승인 처리하시겠습니까?',
+    REVOKE:                      '승인을 취소하시겠습니까?',
+    REQUEST_REVOKE:              '관리자에게 승인 취소를 요청하시겠습니까?',
+    CANCEL_REVOKE_REQUEST:       '승인 취소 요청을 철회하시겠습니까? 승인완료 상태로 유지됩니다.',
+    REJECT_REVOKE_REQUEST:       '승인 취소 요청을 반려하시겠습니까? 승인완료 상태로 유지됩니다.',
+    REQUEST_REVIEW_CANCEL:       '검토자에게 검토 취소를 요청하시겠습니까?',
+    CANCEL_REVIEW_CANCEL_REQUEST:'검토 취소 요청을 철회하시겠습니까? 검토완료 상태로 유지됩니다.',
+    REJECT_REVIEW_CANCEL_REQUEST:'검토 취소 요청을 반려하시겠습니까? 검토완료 상태로 유지됩니다.'
   };
   if (!confirm('[' + title + '] ' + (msgs[action] || '처리하시겠습니까?'))) return;
 
@@ -330,10 +473,16 @@ function doAction(recordId, action, title) {
         } else {
           state.records.forEach(function(r) {
             if (r.recordId !== recordId) return;
-            if (action === 'CANCEL_REVIEW') { r.status = '작성완료'; r.reviewer  = ''; }
-            if (action === 'REVIEW')        { r.status = '검토완료'; r.reviewer  = state.user.name; }
-            if (action === 'APPROVE')       { r.status = '승인완료'; r.approver  = state.user.name; }
-            if (action === 'REVOKE')        { r.status = r.reviewer ? '검토완료' : '작성완료'; r.approver = ''; }
+            if (action === 'CANCEL_REVIEW')               { r.status = '작성완료';    r.reviewer = ''; }
+            if (action === 'REVIEW')                      { r.status = '검토완료';    r.reviewer = state.user.name; }
+            if (action === 'APPROVE')                     { r.status = '승인완료';    r.approver = state.user.name; }
+            if (action === 'REVOKE')                      { r.status = '작성중';      r.reviewer = ''; r.approver = ''; }
+            if (action === 'REQUEST_REVOKE')              { r.status = '취소요청'; }
+            if (action === 'CANCEL_REVOKE_REQUEST')       { r.status = '승인완료'; }
+            if (action === 'REJECT_REVOKE_REQUEST')       { r.status = '승인완료'; }
+            if (action === 'REQUEST_REVIEW_CANCEL')       { r.status = '검토취소요청'; }
+            if (action === 'CANCEL_REVIEW_CANCEL_REQUEST'){ r.status = '검토완료'; }
+            if (action === 'REJECT_REVIEW_CANCEL_REQUEST'){ r.status = '검토완료'; }
           });
           renderLists();
         }
