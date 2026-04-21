@@ -35,10 +35,11 @@ function openForm(recordId, logId, title, date) {
       var formArea = document.getElementById('form-scroll-area');
       document.getElementById('form-title').innerText = title;
 
-      if (logId === 'si0201') {
-        var tpl = document.getElementById('tpl-si0201');
-        if (tpl) formArea.innerHTML = tpl.innerHTML;
-        if (typeof initSi0201Form === 'function') initSi0201Form(date, res && res.dataJson);
+      var template = state.logTemplates && state.logTemplates.find(function(t) { return t.logId === logId; });
+      if (template && template.items && template.items.length) {
+        formArea.innerHTML = '<div id="fengine-container"></div>';
+        var config = buildConfigFromDbItems(template);
+        initFormEngine(config, 'fengine-container', res && res.dataJson ? res.dataJson : null);
       } else {
         if (genericFormHtml) formArea.innerHTML = genericFormHtml;
         initGenericForm(date);
@@ -53,8 +54,14 @@ function openForm(recordId, logId, title, date) {
       formState = { checkData: {}, defectTexts: {}, actionTexts: {}, defectPhotos: {}, actionPhotos: {} };
       var formArea = document.getElementById('form-scroll-area');
       document.getElementById('form-title').innerText = title;
-      if (genericFormHtml) formArea.innerHTML = genericFormHtml;
-      initGenericForm(date);
+      var tmpl = state.logTemplates && state.logTemplates.find(function(t) { return t.logId === logId; });
+      if (tmpl && tmpl.items && tmpl.items.length) {
+        formArea.innerHTML = '<div id="fengine-container"></div>';
+        initFormEngine(buildConfigFromDbItems(tmpl), 'fengine-container', null);
+      } else {
+        if (genericFormHtml) formArea.innerHTML = genericFormHtml;
+        initGenericForm(date);
+      }
       hideLoading();
       document.getElementById('main-screen').classList.add('hidden');
       document.getElementById('form-screen').classList.remove('hidden');

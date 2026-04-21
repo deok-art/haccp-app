@@ -32,7 +32,7 @@ router.post('/login', (req, res) => {
 
   // 비밀번호 미설정 + '0000' 입력 → 최초 변경 안내
   if (!user.password_hash && pw === '0000') {
-    return res.json({ success: true, mustChangePw: true, userInfo: null });
+    return res.json({ success: true, mustChangePw: true, userInfo: { id: user.id, name: user.name, signature: user.signature || '' } });
   }
 
   if (user.password_hash !== sha256(pw)) {

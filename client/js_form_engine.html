@@ -9,6 +9,28 @@
 //    { group: '그룹명', items: [{ key, sub, desc }, ...] }
 // ════════════════════════════════════════════════════════
 
+// ── DB flat items → 폼 엔진 config 변환 ───────────────
+function buildConfigFromDbItems(template) {
+  var groups = [];
+  var cur = null;
+  (template.items || []).forEach(function(item) {
+    if (item.type === 'group_header') {
+      cur = { group: item.label, items: [] };
+      groups.push(cur);
+    } else if (item.type === 'check' && cur) {
+      cur.items.push({ key: item.key, sub: item.key.split('_').pop(), desc: item.label });
+    }
+  });
+  return {
+    formId:   template.logId,
+    title:    template.title,
+    docNo:    template.docNo,
+    revision: template.revision,
+    interval: template.interval,
+    groups:   groups,
+  };
+}
+
 // ── 폼 초기화 (formState + 렌더링) ────────────────────
 function initFormEngine(config, containerId, savedJson) {
   var saved = {};
@@ -428,6 +450,7 @@ function buildFormPrintHtml(rec, dataJsonStr, sigRes, config) {
   if (!data || !data.items) return '';
 
   var signCols = buildFormSignCols(rec, sigRes);
+  var metaRow = { date: rec.date, writerName: rec.writerName, interval: config.interval };
 
   var ngItems = [];
   config.groups.forEach(function(grp) {
@@ -441,13 +464,13 @@ function buildFormPrintHtml(rec, dataJsonStr, sigRes, config) {
   var page1 = buildPrintPage(
     config.title,
     buildFormBodyHtml(data, rec, config),
-    config, signCols, 1, totalPages
+    config, signCols, metaRow, 1, totalPages
   );
   var page2 = ngItems.length
     ? buildPrintPage(
         config.title + ' - 부적합/개선조치',
         buildFormDefectHtml(ngItems),
-        config, signCols, 2, totalPages
+        config, signCols, null, 2, totalPages
       )
     : '';
 

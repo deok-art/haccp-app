@@ -4,10 +4,10 @@
 // ════════════════════════════════════════════════════════
 
 // ── 모달 ───────────────────────────────────────────────
-function openModal(title, body, showClose) {
+function openModal(title, body) {
   document.getElementById('modal-title').innerText   = title;
   document.getElementById('modal-body').innerHTML    = body;
-  document.getElementById('modal-close').style.display = showClose ? 'block' : 'none';
+  document.getElementById('modal-close').style.display = 'block';
   document.getElementById('modal').classList.remove('hidden');
 }
 

@@ -152,8 +152,10 @@ function executePrint() {
       .withSuccessHandler(function(res) {
         if (res.success) {
           var printHtml = '';
-          if (rec.logId === 'si0201') {
-            printHtml = buildSi0201PrintHtml(rec, res.dataJson, res);
+          var tmpl = (state.logTemplates || []).filter(function(t) { return t.logId === rec.logId; })[0];
+          if (tmpl) {
+            var cfg = buildConfigFromDbItems(tmpl);
+            printHtml = buildFormPrintHtml(rec, res.dataJson, res, cfg);
           }
           allHtml.push({ date: rec.date, recordId: rec.recordId, html: printHtml });
         }

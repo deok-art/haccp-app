@@ -18,6 +18,7 @@ var state = {
   logs:              [],
   records:           [],
   factories:         [],   // 전체 공장 목록 [{ id, name }]
+  logTemplates:      [],   // 전체 양식 템플릿
   currentFactory:    null, // 현재 선택된 공장 ID
   userMeta:          {},
   currentFilter:     'all',
@@ -216,12 +217,13 @@ function loadData() {
   google.script.run
     .withSuccessHandler(function(res) {
       if (!res.success) { alert('서버 오류: ' + res.message); showLoginScreen(); return; }
-      state.settings    = res.settings;
-      state.logs        = res.logs;
-      state.factories   = res.factories || [{ id: 'pb2', name: '2공장(PBⅡ)' }];
-      state.records     = res.records;
-      state.serverToday = res.serverToday;
-      state.userMeta    = res.userMeta || {};
+      state.settings     = res.settings;
+      state.logs         = res.logs;
+      state.factories    = res.factories || [{ id: 'pb2', name: '2공장(PBⅡ)' }];
+      state.records      = res.records;
+      state.serverToday  = res.serverToday;
+      state.userMeta     = res.userMeta || {};
+      state.logTemplates = res.logTemplates || [];
       renderBaseUI();
       checkSession();
     })
@@ -330,6 +332,9 @@ function loginSuccess(user) {
 
   if (user.mustChangePw) { hideLoading(); forceChangePassword(); return; }
   if (!user.signature)   { hideLoading(); forceSignature();       return; }
+
+  // 로그인 후 factories가 비어있으면 데이터 재로드 (인증 전 loadData가 차단된 경우)
+  if (state.factories.length === 0) { loadData(); return; }
 
   // 팀장인데 현재 대행자가 있으면 복귀 팝업
   if (user.title === 'HACCP팀장') {

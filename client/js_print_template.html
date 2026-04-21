@@ -5,7 +5,7 @@
 //
 //  사용법 (각 양식 buildXXXPrintHtml에서):
 //    1. signCols 배열 구성
-//    2. buildPrintPage(titleStr, bodyHtml, FORM_CONFIG, signCols, pageNum, totalPages) 호출
+//    2. buildPrintPage(titleStr, bodyHtml, FORM_CONFIG, signCols, metaRow, pageNum, totalPages) 호출
 // ════════════════════════════════════════════════════════
 
 // ── 결재란 텍스트 폰트 크기 클래스 (길이 기반 추정) ──────
@@ -61,7 +61,16 @@ function buildPrintApproveTable(signCols) {
 // ── 헤더 HTML 생성 ────────────────────────────────────
 // titleStr: 헤더에 표시할 제목 문자열
 // signCols: [{ role, title, name, date, sig }, ...]
-function buildPrintHeader(titleStr, signCols) {
+// metaRow:  { date, writerName, interval } — 2행 정보 (optional)
+function buildPrintHeader(titleStr, signCols, metaRow) {
+  var intervalMap = { daily: '일간', weekly: '주간', monthly: '월간' };
+  var meta2 = metaRow
+    ? '<tr>' +
+        '<td class="pdoc-meta-cell">작성일자: ' + (metaRow.date || '') + '</td>' +
+        '<td class="pdoc-meta-cell">작성자: ' + (metaRow.writerName || '') + '</td>' +
+        '<td class="pdoc-meta-cell">작성주기: ' + (intervalMap[metaRow.interval] || metaRow.interval || '') + '</td>' +
+      '</tr>'
+    : '';
   return (
     '<table class="pdoc-header">' +
       '<tr>' +
@@ -69,17 +78,18 @@ function buildPrintHeader(titleStr, signCols) {
         '<td class="pdoc-title-cell">' + (titleStr || '') + '</td>' +
         '<td class="pdoc-approve-cell">' + buildPrintApproveTable(signCols) + '</td>' +
       '</tr>' +
+      meta2 +
     '</table>'
   );
 }
 
 // ── 바닥글 HTML 생성 ─────────────────────────────────
-// config: { docNo, revision }
+// config: { revision }
 function buildPrintFooter(config, pageNum, totalPages) {
   return (
     '<table class="pfoot-table">' +
       '<tr>' +
-        '<td class="pfoot-cell pfoot-left">문서번호: ' + (config.docNo || '') + '</td>' +
+        '<td class="pfoot-cell pfoot-left"></td>' +
         '<td class="pfoot-cell pfoot-center">페이지 ' + pageNum + ' / ' + totalPages + '</td>' +
         '<td class="pfoot-cell pfoot-right">' + (config.revision || '') + '</td>' +
       '</tr>' +
@@ -92,11 +102,12 @@ function buildPrintFooter(config, pageNum, totalPages) {
 // bodyHtml:   페이지 본문 HTML
 // config:     { title, docNo, revision }
 // signCols:   [{ role, title, name, date, sig }, ...]
+// metaRow:    { date, writerName, interval } — 2행 정보 (optional)
 // pageNum, totalPages: 페이지 번호
-function buildPrintPage(titleStr, bodyHtml, config, signCols, pageNum, totalPages) {
+function buildPrintPage(titleStr, bodyHtml, config, signCols, metaRow, pageNum, totalPages) {
   return (
     '<div class="print-page">' +
-      buildPrintHeader(titleStr, signCols) +
+      buildPrintHeader(titleStr, signCols, metaRow) +
       bodyHtml +
       buildPrintFooter(config, pageNum, totalPages) +
     '</div>'

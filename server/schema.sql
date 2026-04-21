@@ -45,13 +45,25 @@ CREATE INDEX IF NOT EXISTS idx_records_factory_log  ON records(factory_id, log_i
 CREATE TABLE IF NOT EXISTS log_templates (
   log_id      TEXT PRIMARY KEY,
   title       TEXT NOT NULL DEFAULT '',
-  doc_no      TEXT NOT NULL DEFAULT '',
+  doc_no      TEXT NOT NULL DEFAULT '' UNIQUE,
   revision    TEXT NOT NULL DEFAULT 'Rev.1',
   factory_id  TEXT NOT NULL DEFAULT 'pb2',
   interval    TEXT NOT NULL DEFAULT 'daily',  -- daily|weekly|monthly
   meta_info   TEXT NOT NULL DEFAULT '{}',     -- JSON (period, location 등)
   approval    TEXT NOT NULL DEFAULT '[]',     -- JSON 결재란 배열
   items       TEXT NOT NULL DEFAULT '[]'      -- JSON 항목 배열 (flat)
+);
+
+-- ── 공장 ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS factories (
+  factory_id TEXT PRIMARY KEY,
+  name       TEXT NOT NULL
+);
+
+-- ── 앱 설정 ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
 );
 
 -- ── 대리인 (Deputy) ───────────────────────────────────

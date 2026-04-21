@@ -1,9 +1,11 @@
 /**
  * seed.js — 초기 데이터 투입
  * 사용법:
- *   node seed.js               → 기본 데이터만 투입
- *   node seed.js users.csv     → 사용자 CSV 투입
- *   node seed.js templates.csv → 양식 템플릿 CSV 투입
+ *   node seed.js                        → 기본 데이터만 투입
+ *   node seed.js path/to/users.csv      → 사용자 CSV 투입
+ *   node seed.js path/to/factories.csv  → 공장 CSV 투입
+ *   node seed.js path/to/settings.csv   → 설정 CSV 투입
+ *   node seed.js path/to/templates.csv  → 양식 템플릿 CSV 투입
  */
 
 const { db, now } = require('./db');
@@ -15,21 +17,93 @@ function hashPassword(pw) {
   return crypto.createHash('sha256').update(pw).digest('hex');
 }
 
-// ── CSV 파서 (의존성 없는 간단 구현) ──────────────────────
+function isAlreadyHashed(str) {
+  return typeof str === 'string' && /^[0-9a-f]{64}$/.test(str);
+}
+
+// ── CSV 파서 (의존성 없는 구현, quoted field 지원) ─────
 function parseCsv(text) {
-  const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const lines = splitCsvLines(text.trim());
+  if (lines.length < 2) return [];
+
+  const headers = parseCsvRow(lines[0]);
+
   return lines.slice(1).map(line => {
-    const values = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g) || [];
+    const values = parseCsvRow(line);
     const obj = {};
     headers.forEach((h, i) => {
-      obj[h] = (values[i] || '').trim().replace(/^"|"$/g, '');
+      obj[h] = values[i] !== undefined ? values[i] : '';
     });
     return obj;
   });
 }
 
-// ── 기본 사용자 투입 ──────────────────────────────────────
+// 큰따옴표 안의 줄바꿈을 고려한 행 분리
+function splitCsvLines(text) {
+  const lines = [];
+  let current = '';
+  let inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      inQuote = !inQuote;
+      current += ch;
+    } else if ((ch === '\n' || ch === '\r') && !inQuote) {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      if (current.trim()) lines.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) lines.push(current);
+  return lines;
+}
+
+// 한 행을 필드 배열로 파싱 (quoted field 내 쉼표/줄바꿈 처리)
+function parseCsvRow(line) {
+  const fields = [];
+  let field = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') { // escaped quote
+        field += '"';
+        i++;
+      } else {
+        inQuote = !inQuote;
+      }
+    } else if (ch === ',' && !inQuote) {
+      fields.push(field);
+      field = '';
+    } else {
+      field += ch;
+    }
+  }
+  fields.push(field);
+  return fields;
+}
+
+// ── 기본 공장 투입 ────────────────────────────────────
+function seedDefaultFactories() {
+  const existing = db.prepare('SELECT COUNT(*) as cnt FROM factories').get();
+  if (existing.cnt > 0) {
+    console.log('factories 테이블에 이미 데이터 있음 — 건너뜀');
+    return;
+  }
+  const insert = db.prepare('INSERT OR IGNORE INTO factories (factory_id, name) VALUES (?, ?)');
+  const defaults = [
+    ['pb1', '1공장(PBⅡ)'],
+    ['pb2', '2공장(PBⅡ)'],
+    ['pb3', '3공장(PBⅡ)'],
+  ];
+  const tx = db.transaction(rows => rows.forEach(([id, name]) => insert.run(id, name)));
+  tx(defaults);
+  console.log(`기본 공장 ${defaults.length}개 투입 완료`);
+}
+
+// ── 기본 사용자 투입 ──────────────────────────────────
 function seedDefaultUsers() {
   const existing = db.prepare('SELECT COUNT(*) as cnt FROM users').get();
   if (existing.cnt > 0) {
@@ -43,30 +117,72 @@ function seedDefaultUsers() {
   `);
 
   const defaults = [
-    { id: 'admin',   name: '관리자',   factory_roles: '{"pb1":3,"pb2":3}', password_hash: hashPassword('1234'), is_master: 1 },
-    { id: 'worker1', name: '작업자1',  factory_roles: '{"pb2":1}',         password_hash: hashPassword('1234'), is_master: 0 },
-    { id: 'review1', name: '검토자1',  factory_roles: '{"pb2":2}',         password_hash: hashPassword('1234'), is_master: 0 },
+    { id: 'admin',   name: '관리자',  factory_roles: '{"pb1":3,"pb2":3,"pb3":3}', password_hash: hashPassword('1234'), is_master: 1 },
+    { id: 'worker1', name: '작업자1', factory_roles: '{"pb2":1}',                 password_hash: hashPassword('1234'), is_master: 0 },
+    { id: 'review1', name: '검토자1', factory_roles: '{"pb2":2}',                 password_hash: hashPassword('1234'), is_master: 0 },
   ];
 
-  const insertMany = db.transaction(rows => rows.forEach(r => insert.run(r)));
-  insertMany(defaults);
+  const tx = db.transaction(rows => rows.forEach(r => insert.run(r)));
+  tx(defaults);
   console.log(`기본 사용자 ${defaults.length}명 투입 완료`);
 }
 
-// ── CSV → users 테이블 ─────────────────────────────────
+// ── CSV → factories 테이블 ────────────────────────────
+function seedFactoriesFromCsv(filePath) {
+  const rows = parseCsv(fs.readFileSync(filePath, 'utf8'));
+  const insert = db.prepare('INSERT OR REPLACE INTO factories (factory_id, name) VALUES (@factory_id, @name)');
+  const tx = db.transaction(rows => rows.forEach(r => insert.run(r)));
+  tx(rows.map(r => ({
+    factory_id: r.factoryId || r.factory_id || r['공장ID'],
+    name:       r.name      || r['공장명'],
+  })));
+  console.log(`공장 ${rows.length}개 CSV 투입 완료`);
+}
+
+// ── CSV → settings 테이블 ─────────────────────────────
+function seedSettingsFromCsv(filePath) {
+  const rows = parseCsv(fs.readFileSync(filePath, 'utf8'));
+  const insert = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (@key, @value)');
+  const SKIP_KEYS = new Set(['PhotoFolderId']); // GDrive 레거시 — DB에 저장할 필요 없음
+  const filtered = rows.filter(r => !SKIP_KEYS.has(r.Key || r.key));
+  const tx = db.transaction(rows => rows.forEach(r => insert.run(r)));
+  tx(filtered.map(r => ({
+    key:   r.Key   || r.key,
+    value: r.Value || r.value || '',
+  })));
+  console.log(`설정 ${filtered.length}개 CSV 투입 완료 (${rows.length - filtered.length}개 건너뜀)`);
+}
+
+// ── CSV → users 테이블 ────────────────────────────────
 function seedUsersFromCsv(filePath) {
   const rows = parseCsv(fs.readFileSync(filePath, 'utf8'));
   const insert = db.prepare(`
-    INSERT OR REPLACE INTO users (id, name, factory_roles, password_hash)
-    VALUES (@id, @name, @factory_roles, @password_hash)
+    INSERT OR REPLACE INTO users
+      (id, name, factory_roles, factory_deputies, password_hash, signature, rank, is_master)
+    VALUES
+      (@id, @name, @factory_roles, @factory_deputies, @password_hash, @signature, @rank, @is_master)
   `);
-  const insertMany = db.transaction(rows => rows.forEach(r => insert.run(r)));
-  insertMany(rows.map(r => ({
-    id:            r.id || r['아이디'],
-    name:          r.name || r['이름'],
-    factory_roles: r.factory_roles || r['공장권한'] || '{"pb2":1}',
-    password_hash: hashPassword(r.password || r['비밀번호'] || '1234'),
-  })));
+  const tx = db.transaction(rows => rows.forEach(r => insert.run(r)));
+
+  tx(rows.map(r => {
+    const rawPw = r.PW || r.pw || r['비밀번호'] || '';
+    // 이미 SHA-256 hex(64자)면 그대로 사용, 아니면 해시
+    const passwordHash = isAlreadyHashed(rawPw) ? rawPw : hashPassword(rawPw || '1234');
+
+    const rawMaster = r['마스터'] || r.isMaster || r.is_master || '';
+    const isMaster = rawMaster === '1' || rawMaster === 'true' || rawMaster === 'TRUE' ? 1 : 0;
+
+    return {
+      id:               r.ID       || r.id       || r['아이디'],
+      name:             r.Name     || r.name     || r['이름'],
+      factory_roles:    r.Role     || r.role     || r.factory_roles  || r['공장권한'] || '{}',
+      factory_deputies: r.factoryDeputies || r.factory_deputies || r['대리권한'] || '{}',
+      password_hash:    passwordHash,
+      signature:        r.Signature || r.signature || r['서명'] || '',
+      rank:             r.Rank      || r.rank      || r['직급'] || r['직책'] || '',
+      is_master:        isMaster,
+    };
+  }));
   console.log(`사용자 ${rows.length}명 CSV 투입 완료`);
 }
 
@@ -79,17 +195,17 @@ function seedTemplatesFromCsv(filePath) {
     VALUES
       (@log_id, @title, @doc_no, @revision, @factory_id, @interval, @meta_info, @approval, @items)
   `);
-  const insertMany = db.transaction(rows => rows.forEach(r => insert.run(r)));
-  insertMany(rows.map(r => ({
-    log_id:     r.log_id || r['logId'],
-    title:      r.title  || r['제목'],
-    doc_no:     r.doc_no || r['문서번호'] || '',
-    revision:   r.revision || 'Rev.1',
+  const tx = db.transaction(rows => rows.forEach(r => insert.run(r)));
+  tx(rows.map(r => ({
+    log_id:     r.log_id     || r['logId'],
+    title:      r.title      || r['제목'],
+    doc_no:     r.doc_no     || r['문서번호'] || '',
+    revision:   r.revision   || 'Rev.1',
     factory_id: r.factory_id || r['공장'] || 'pb2',
-    interval:   r.interval || 'daily',
-    meta_info:  r.meta_info || '{}',
-    approval:   r.approval  || '[]',
-    items:      r.items     || '[]',
+    interval:   r.interval   || 'daily',
+    meta_info:  r.meta_info  || '{}',
+    approval:   r.approval   || '[]',
+    items:      r.items      || '[]',
   })));
   console.log(`양식 템플릿 ${rows.length}개 CSV 투입 완료`);
 }
@@ -182,13 +298,18 @@ if (arg && fs.existsSync(arg)) {
   const basename = path.basename(arg, '.csv').toLowerCase();
   if (basename.includes('user') || basename.includes('사용자')) {
     seedUsersFromCsv(arg);
+  } else if (basename.includes('factor') || basename.includes('공장')) {
+    seedFactoriesFromCsv(arg);
+  } else if (basename.includes('setting') || basename.includes('설정')) {
+    seedSettingsFromCsv(arg);
   } else if (basename.includes('template') || basename.includes('양식')) {
     seedTemplatesFromCsv(arg);
   } else {
-    console.error('파일명에 "user" 또는 "template" 이 포함되어야 합니다.');
+    console.error('파일명에 "user", "factor", "setting", "template" 중 하나가 포함되어야 합니다.');
     process.exit(1);
   }
 } else {
+  seedDefaultFactories();
   seedDefaultUsers();
   seedSi0201Template();
 }
