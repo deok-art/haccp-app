@@ -1,0 +1,130 @@
+{
+  "doc_info": {
+    "title": "작업장 위생 및 온도 점검표",
+    "doc_no": "PBⅡ-SI-02-02",
+    "rev_no": "미표기",
+    "period": "일 1회"
+  },
+  "items": [
+    {
+      "key": "hygiene_01",
+      "category": "일반위생",
+      "label": "작업전: 각 구역 별 청소 및 위생 및 청결 상태는 양호한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["해동실", "방혈실", "전처리실", "계량실", "자숙실", "파쇄실", "내포장실", "외포장실", "냉장실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "hygiene_02",
+      "category": "일반위생",
+      "label": "작업자: 개인위생(청결,복장,장신구,질병)을 준수하는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["해동실", "방혈실", "전처리실", "계량실", "자숙실", "파쇄실", "내포장실", "외포장실", "냉장실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "hygiene_06",
+      "category": "일반위생",
+      "label": "배수로: 퇴적물이 없으며 청소상태가 양호한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["해동실", "전처리실", "자숙실", "내포장실"],
+      "note": "표에서 '-' 표시된 구역 제외",
+      "required_defect_action": true
+    },
+    {
+      "key": "equip_01",
+      "category": "제조설비",
+      "label": "고주파해동기의 청소상태는 양호한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["해동실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "equip_03",
+      "category": "제조설비",
+      "label": "작업대 및 전처리 사용도구는 청결한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["전처리실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "equip_04",
+      "category": "제조설비",
+      "label": "자외선 살균 소독기(앞치마, 칼, 도마 등) 작동 및 청결상태",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["전처리실", "파쇄실", "외포장실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "equip_05",
+      "category": "제조설비",
+      "label": "저울 등 계량 도구의 청결 상태는 양호한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["계량실", "외포장실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "equip_07",
+      "category": "제조설비",
+      "label": "자숙탱크 및 배합탱크의 청소상태는 양호한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["자숙실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "equip_10",
+      "category": "제조설비",
+      "label": "파쇄기 및 작업대의 청소상태는 양호한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["파쇄실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "equip_12",
+      "category": "제조설비",
+      "label": "내포장기, X-ray검출기, 중량선별기의 청결상태는 양호한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["내포장실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "equip_16",
+      "category": "제조설비",
+      "label": "멸균기, 제수기, 제함기의 청결상태는 양호한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["외포장실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "equip_18",
+      "category": "제조설비",
+      "label": "냉장실 내부 설비의 위생상태는 양호한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "target_rooms": ["냉장실"],
+      "required_defect_action": true
+    },
+    {
+      "key": "temp_check",
+      "category": "온도관리",
+      "label": "작업장별 온도는 관리기준에 적합한가?",
+      "type": "numeric",
+      "target_rooms": ["해동실", "방혈실", "전처리실", "계량실", "자숙실", "파쇄실", "내포장실", "외포장실", "냉장실"],
+      "criteria_mapping": {
+        "해동실": 20, "방혈실": 10, "전처리실": 15, "계량실": 25, "자숙실": 35, "파쇄실": 15, "내포장실": 15, "외포장실": 25, "냉장실": 10
+      },
+      "required_defect_action": true
+    }
+  ]
+}

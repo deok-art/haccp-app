@@ -8,28 +8,59 @@ function renderLists() {
   renderDoneList();
 }
 
+function _renderCreateUtcDate(dateStr) {
+  var parts = String(dateStr || '').split('-').map(Number);
+  return new Date(Date.UTC(parts[0] || 1970, (parts[1] || 1) - 1, parts[2] || 1));
+}
+
+function _renderFormatUtcDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function _renderGetWeekStart(dateStr) {
+  var date = _renderCreateUtcDate(dateStr);
+  var day = date.getUTCDay();
+  var diff = day === 0 ? -6 : 1 - day;
+  date.setUTCDate(date.getUTCDate() + diff);
+  return _renderFormatUtcDate(date);
+}
+
+function _renderGetIntervalPeriodKey(dateStr, interval) {
+  if (!dateStr) return '';
+  if (interval === 'weekly') return _renderGetWeekStart(dateStr);
+  if (interval === 'monthly') return String(dateStr).slice(0, 7);
+  return String(dateStr);
+}
+
+function _renderHasCurrentPeriodDone(log) {
+  var currentKey = _renderGetIntervalPeriodKey(state.serverToday, log.interval);
+  return state.records.some(function(rec) {
+    return rec.logId === log.id &&
+      (rec.factoryId || 'pb2') === state.currentFactory &&
+      rec.status !== '작성중' &&
+      rec.status !== '미작성' &&
+      _renderGetIntervalPeriodKey(rec.date, log.interval) === currentKey;
+  });
+}
+
 // ── 할일(미작성/작성중) 목록 — 현재 선택 공장만 ─────────
 function renderTodoList() {
   var list = document.getElementById('todo-list');
   list.innerHTML = '';
 
   var groups = [
-    { key: '일간', label: '📋 일간 일지', cls: 'daily'   },
-    { key: '주간', label: '📅 주간 일지', cls: 'weekly'  },
-    { key: '월간', label: '📆 월간 일지', cls: 'monthly' }
+    { key: 'daily',   label: '📋 일간 일지', cls: 'daily'   },
+    { key: 'weekly',  label: '📅 주간 일지', cls: 'weekly'  },
+    { key: 'monthly', label: '📆 월간 일지', cls: 'monthly' }
   ];
 
   // 현재 공장 일지만 필터링
   var currentFactory = state.currentFactory;
 
-  var writingRecs = state.records.filter(function(r) {
-    // 사후작성(과거 날짜)으로 생성된 작성중 문서도 여기서 노출되도록 날짜 조건 제거
-    return r.status === '작성중' && (r.factoryId || 'pb2') === currentFactory;
+  // '미작성' + '작성중' 모두 TODO 탭에 표시
+  var activeRecs = state.records.filter(function(r) {
+    return (r.status === '작성중' || r.status === '미작성') && (r.factoryId || 'pb2') === currentFactory;
   });
-  var writingIds = writingRecs.map(function(r) { return r.logId; });
-  var doneIds    = state.records
-    .filter(function(r) { return r.date === state.serverToday && r.status !== '작성중' && (r.factoryId || 'pb2') === currentFactory; })
-    .map(function(r) { return r.logId; });
 
   var totalCount = 0;
 
@@ -50,28 +81,45 @@ function renderTodoList() {
     section.appendChild(header);
 
     logsInGroup.forEach(function(log) {
-      var recsForLog = writingRecs
+      var recsForLog = activeRecs
         .filter(function(r) { return r.logId === log.id; })
         .sort(function(a, b) { return String(b.date).localeCompare(String(a.date)); });
 
-      // 같은 일지라도 날짜가 다르면 각각 수정 가능해야 하므로 작성중 카드를 날짜별로 모두 표시
       if (recsForLog.length > 0) {
         recsForLog.forEach(function(rec) {
           var card = document.createElement('div');
-          card.className = 'log-card writing';
-          card.id        = 'log-card-' + rec.recordId;
 
-          var actionHtml =
-            '<button class="action-btn btn-submit" onclick="event.stopPropagation();openForm(\'' +
-              rec.recordId + '\',\'' + log.id + '\',\'' + log.title + '\',\'' + rec.date + '\')">✏️ 수정하기</button>';
+          if (rec.status === '작성중') {
+            card.className = 'log-card writing';
+            card.id        = 'log-card-' + rec.recordId;
 
-          card.innerHTML =
-            '<div class="status-dot writing"></div>' +
-            '<div class="log-card-body">' +
-              '<div class="log-card-title">' + log.title + '</div>' +
-              '<div class="log-card-sub">✏️ 작성 중 · ' + rec.date + '</div>' +
-            '</div>' +
-            '<div class="log-card-action" id="card-action-' + rec.recordId + '">' + actionHtml + '</div>';
+            var actionHtml =
+              '<button class="action-btn btn-submit" onclick="event.stopPropagation();openForm(\'' +
+                rec.recordId + '\',\'' + log.id + '\',\'' + log.title + '\',\'' + rec.date + '\')">✏️ 수정하기</button>';
+
+            card.innerHTML =
+              '<div class="status-dot writing"></div>' +
+              '<div class="log-card-body">' +
+                '<div class="log-card-title">' + log.title + '</div>' +
+                '<div class="log-card-sub">✏️ 작성 중 · ' + rec.date + '</div>' +
+              '</div>' +
+              '<div class="log-card-action" id="card-action-' + rec.recordId + '">' + actionHtml + '</div>';
+          } else {
+            // '미작성' DB 레코드 — 플레이스홀더 스타일, 클릭 시 startNewLog
+            card.className = 'log-card unstarted';
+            card.id        = 'log-card-' + rec.recordId;
+            card.innerHTML =
+              '<div class="status-dot unstarted"></div>' +
+              '<div class="log-card-body">' +
+                '<div class="log-card-title">' + log.title + '</div>' +
+                '<div class="log-card-sub">⬜ 미작성</div>' +
+              '</div>' +
+              '<div class="log-card-action" id="card-action-' + rec.recordId + '"></div>';
+
+            card.onclick = (function(logId, title, cardElem, targetDate) {
+              return function() { startNewLog(logId, title, cardElem, targetDate); };
+            })(log.id, log.title, card, rec.date);
+          }
 
           section.appendChild(card);
           totalCount++;
@@ -79,8 +127,8 @@ function renderTodoList() {
         return;
       }
 
-      // 작성중이 없고, 오늘 완료본이 있으면 미작성 카드 숨김
-      if (doneIds.includes(log.id)) return;
+      // active 레코드가 없더라도 현재 주기 구간 완료본이 있으면 플레이스홀더를 숨긴다.
+      if (_renderHasCurrentPeriodDone(log)) return;
 
       var card = document.createElement('div');
       card.className = 'log-card unstarted';
@@ -94,7 +142,7 @@ function renderTodoList() {
         '<div class="log-card-action" id="card-action-' + log.id + '"></div>';
 
       card.onclick = (function(logId, title, cardElem) {
-        return function() { startNewLog(logId, title, cardElem); };
+        return function() { startNewLog(logId, title, cardElem, state.serverToday); };
       })(log.id, log.title, card);
 
       section.appendChild(card);
@@ -110,36 +158,55 @@ function renderTodoList() {
 /**
  * 새 일지 레코드 생성 후 폼 열기
  */
-function startNewLog(logId, title, cardElem) {
+function startNewLog(logId, title, cardElem, targetDate) {
+  var workDate = targetDate || state.serverToday;
   cardElem.onclick = null;
   showLoading('일지 생성 중...');
 
   google.script.run
     .withSuccessHandler(function(res) {
       if (res && res.success) {
-        state.records.push({
-          recordId: res.recordId, logId: logId, title: title,
-          date: state.serverToday, writerId: state.user.id,
-          writerName: state.user.name, reviewer: '', approver: '',
-          status: '작성중', pdfLink: '', defectInfo: ''
-        });
-        openForm(res.recordId, logId, title, state.serverToday);
+        // 기존 '미작성' 레코드 재사용 시 중복 push 방지
+        var existingRec = state.records.find(function(r) { return r.recordId === res.recordId; });
+        if (existingRec) {
+          existingRec.status = '작성중';
+          existingRec.date = existingRec.date || workDate;
+          existingRec.writerDate = existingRec.writerDate || workDate;
+          existingRec.factoryId = existingRec.factoryId || state.currentFactory || 'pb2';
+          existingRec.writerId = existingRec.writerId || state.user.id;
+          existingRec.writerName = existingRec.writerName || state.user.name;
+          if (existingRec.reviewerName === undefined && existingRec.reviewer) existingRec.reviewerName = existingRec.reviewer;
+          if (existingRec.approverName === undefined && existingRec.approver) existingRec.approverName = existingRec.approver;
+        } else {
+          state.records.push({
+            recordId: res.recordId, logId: logId, title: title,
+            date: workDate, writerId: state.user.id,
+            writerName: state.user.name,
+            writerDate: workDate,
+            reviewerId: '', reviewerName: '', reviewerDate: '',
+            approverId: '', approverName: '', approverDate: '',
+            writerRole: getCurrentRole(),
+            factoryId: state.currentFactory || 'pb2',
+            status: '작성중', defectInfo: ''
+          });
+        }
+        openForm(res.recordId, logId, title, workDate);
       } else {
         hideLoading();
         showToast('일지 생성 실패: ' + (res.message || ''), 'error');
-        cardElem.onclick = (function(lid, t, ce) {
-          return function() { startNewLog(lid, t, ce); };
-        })(logId, title, cardElem);
+        cardElem.onclick = (function(lid, t, ce, d) {
+          return function() { startNewLog(lid, t, ce, d); };
+        })(logId, title, cardElem, workDate);
       }
     })
     .withFailureHandler(function() {
       hideLoading();
       showToast('서버 통신 오류. 다시 시도해주세요.', 'error');
-      cardElem.onclick = (function(lid, t, ce) {
-        return function() { startNewLog(lid, t, ce); };
-      })(logId, title, cardElem);
+      cardElem.onclick = (function(lid, t, ce, d) {
+        return function() { startNewLog(lid, t, ce, d); };
+      })(logId, title, cardElem, workDate);
     })
-    .createNewLog(logId, title, state.user.id, state.user.name, state.serverToday, state.currentFactory);
+    .createNewLog(logId, title, state.user.id, state.user.name, workDate, state.currentFactory);
 }
 
 // ── 완료(결재/진행) 목록 — 권한 있는 모든 공장 표시 ────────
@@ -151,7 +218,7 @@ function renderDoneList() {
 
   // 결재 탭: 권한 있는 모든 공장 일지 표시
   var recs = state.records.filter(function(r) {
-    return r.status !== '작성중' && (userRoles[r.factoryId] || 0) >= 1;
+    return r.status !== '작성중' && r.status !== '미작성' && (userRoles[r.factoryId] || 0) >= 1;
   });
 
   var currentRole = getCurrentRole();
@@ -171,7 +238,7 @@ function renderDoneList() {
   if (!recs.length) {
     list.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">해당하는 일지가 없습니다.</p>';
     document.getElementById('done-count').innerText =
-      state.records.filter(function(r) { return r.status !== '작성중'; }).length;
+      state.records.filter(function(r) { return r.status !== '작성중' && r.status !== '미작성'; }).length;
     return;
   }
 
@@ -192,7 +259,7 @@ function renderDoneList() {
   });
 
   document.getElementById('done-count').innerText =
-    state.records.filter(function(r) { return r.status !== '작성중'; }).length;
+    state.records.filter(function(r) { return r.status !== '작성중' && r.status !== '미작성'; }).length;
 }
 
 /**
@@ -302,15 +369,99 @@ function buildDoneCard(rec) {
 /**
  * 단건 결재 액션 실행
  */
-function doAction(recordId, action, title) {
-  var msgs = {
-    CANCEL:        '작성을 취소하시겠습니까? 작성중 상태로 돌아갑니다.',
-    REVIEW:        '검토 처리하시겠습니까?',
-    CANCEL_REVIEW: '검토를 취소하시겠습니까?',
-    APPROVE:       '승인 처리하시겠습니까?',
-    REVOKE:        '승인을 취소하시겠습니까?'
+var pendingActionContext = null;
+
+function openActionDateModal(recordId, action, title, defaultActionDate, minActionDate, writerDate, reviewerDate) {
+  pendingActionContext = {
+    recordId: recordId,
+    action: action,
+    title: title,
+    minActionDate: minActionDate || '',
+    writerDate: writerDate || '',
+    reviewerDate: reviewerDate || ''
   };
-  if (!confirm('[' + title + '] ' + (msgs[action] || '처리하시겠습니까?'))) return;
+  var label = action === 'REVIEW' ? '\uAC80\uD1A0\uC77C' : '\uC2B9\uC778\uC77C';
+  var writerInfo = writerDate || '-';
+  var reviewerInfo = reviewerDate || '-';
+  var infoHtml =
+    '<div style="font-size:12px;color:#666;background:#f8f9fa;border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin:0 0 10px;">' +
+      '<div><strong>\uC791\uC131\uC77C:</strong> ' + writerInfo + '</div>' +
+      (action === 'APPROVE'
+        ? '<div style="margin-top:4px;"><strong>\uAC80\uD1A0\uC77C:</strong> ' + reviewerInfo + '</div>'
+        : '') +
+    '</div>';
+  var initialDate = defaultActionDate || '';
+  if (minActionDate && (!initialDate || initialDate < minActionDate)) initialDate = minActionDate;
+  var html =
+    '<p style="font-size:13px;color:#555;margin:0 0 10px;">\uC0AC\uD6C4\uC791\uC131 \uBB38\uC11C\uB294 ' + label + '\uC744 \uC9C1\uC811 \uC9C0\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.</p>' +
+    infoHtml +
+    '<input type="date" id="action-date-input" value="' + initialDate + '" min="' + (minActionDate || '') + '"' +
+      ' style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;font-size:14px;">' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">' +
+      '<button onclick="cancelActionDateModal()" style="padding:8px 16px;border:1px solid #ddd;border-radius:8px;background:white;cursor:pointer;">\uCDE8\uC18C</button>' +
+      '<button onclick="submitActionDateModal()" class="btn-primary" style="padding:8px 16px;">\uD655\uC778</button>' +
+    '</div>';
+  openModal(label + ' \uC785\uB825', html);
+}
+
+function cancelActionDateModal() {
+  pendingActionContext = null;
+  closeModal();
+}
+
+function submitActionDateModal() {
+  var input = document.getElementById('action-date-input');
+  var actionDate = input ? input.value : '';
+  if (!actionDate) {
+    alert('\uB0A0\uC9DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.');
+    return;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(actionDate)) {
+    alert('\uB0A0\uC9DC \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. YYYY-MM-DD \uD615\uC2DD\uC73C\uB85C \uC785\uB825\uD574\uC8FC\uC138\uC694.');
+    return;
+  }
+
+  var ctx = pendingActionContext;
+  if (ctx && ctx.minActionDate && actionDate < ctx.minActionDate) {
+    var baseLabel = ctx.action === 'APPROVE' && ctx.reviewerDate ? '\uAC80\uD1A0\uC77C' : '\uC791\uC131\uC77C';
+    var baseDate = ctx.action === 'APPROVE' && ctx.reviewerDate ? ctx.reviewerDate : ctx.writerDate;
+    alert('\uC120\uD0DD\uD55C ' + (ctx.action === 'REVIEW' ? '\uAC80\uD1A0\uC77C' : '\uC2B9\uC778\uC77C') + '\uC740 ' + baseLabel + '(' + (baseDate || ctx.minActionDate) + ') \uC774\uC804\uC73C\uB85C \uC9C0\uC815\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.');
+    return;
+  }
+  pendingActionContext = null;
+  closeModal();
+  if (!ctx) return;
+  doAction(ctx.recordId, ctx.action, ctx.title, actionDate);
+}
+
+function doAction(recordId, action, title, customActionDate) {
+  var msgs = {
+    CANCEL: '\uC791\uC131\uCDE8\uC18C \uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?',
+    REVIEW: '\uAC80\uD1A0 \uCC98\uB9AC\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?',
+    CANCEL_REVIEW: '\uAC80\uD1A0\uB97C \uCDE8\uC18C\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?',
+    APPROVE: '\uC2B9\uC778 \uCC98\uB9AC\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?',
+    REVOKE: '\uC2B9\uC778\uC744 \uCDE8\uC18C\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?'
+  };
+  if (!confirm('[' + title + '] ' + (msgs[action] || '\uC9C4\uD589\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?'))) return;
+
+  customActionDate = customActionDate || '';
+  var rec = state.records.find(function(r) { return r.recordId === recordId; });
+  var defaultActionDate = (rec && rec.date) || state.serverToday;
+  var writerDate = (rec && (rec.writerDate || rec.date)) || state.serverToday;
+  var reviewerDate = (rec && rec.reviewerDate) || '';
+  var minActionDate = action === 'APPROVE'
+    ? (reviewerDate || writerDate)
+    : writerDate;
+  var isPostDated = rec && rec.date && rec.date !== state.serverToday;
+  if (customActionDate && minActionDate && (action === 'REVIEW' || action === 'APPROVE') && customActionDate < minActionDate) {
+    var minLabel = action === 'APPROVE' && reviewerDate ? '\uAC80\uD1A0\uC77C' : '\uC791\uC131\uC77C';
+    alert((action === 'REVIEW' ? '\uAC80\uD1A0\uC77C' : '\uC2B9\uC778\uC77C') + '\uC740 ' + minLabel + '(' + minActionDate + ') \uC774\uD6C4\uB85C \uC9C0\uC815\uD574\uC8FC\uC138\uC694.');
+    return;
+  }
+  if (!customActionDate && isPostDated && (action === 'REVIEW' || action === 'APPROVE')) {
+    openActionDateModal(recordId, action, title, defaultActionDate, minActionDate, writerDate, reviewerDate);
+    return;
+  }
 
   showCardLoading(recordId);
   google.script.run
@@ -318,34 +469,50 @@ function doAction(recordId, action, title) {
       hideCardLoading(recordId);
       if (res.success) {
         if (action === 'CANCEL') {
-          // 작성완료 → 작성중 복귀 (서명 초기화는 백엔드에서 처리)
           state.records.forEach(function(r) {
             if (r.recordId !== recordId) return;
-            r.status   = '작성중';
-            r.reviewer = '';
-            r.approver = '';
+            r.status = '\uC791\uC131\uC911';
+            r.reviewerName = '';
+            r.reviewerDate = '';
+            r.approverName = '';
+            r.approverDate = '';
           });
-          // 작성중 상태는 done 탭이 아닌 todo 탭으로 이동하므로 양쪽 갱신
           renderLists();
         } else {
           state.records.forEach(function(r) {
             if (r.recordId !== recordId) return;
-            if (action === 'CANCEL_REVIEW') { r.status = '작성완료'; r.reviewer  = ''; }
-            if (action === 'REVIEW')        { r.status = '검토완료'; r.reviewer  = state.user.name; }
-            if (action === 'APPROVE')       { r.status = '승인완료'; r.approver  = state.user.name; }
-            if (action === 'REVOKE')        { r.status = r.reviewer ? '검토완료' : '작성완료'; r.approver = ''; }
+            if (action === 'CANCEL_REVIEW') {
+              r.status = '\uC791\uC131\uC644\uB8CC';
+              r.reviewerName = '';
+              r.reviewerDate = '';
+            }
+            if (action === 'REVIEW') {
+              r.status = '\uAC80\uD1A0\uC644\uB8CC';
+              r.reviewerName = state.user.name;
+              r.reviewerDate = customActionDate || r.date || state.serverToday;
+            }
+            if (action === 'APPROVE') {
+              r.status = '\uC2B9\uC778\uC644\uB8CC';
+              r.approverName = state.user.name;
+              r.approverDate = customActionDate || r.date || state.serverToday;
+            }
+            if (action === 'REVOKE') {
+              r.status = r.reviewerName ? '\uAC80\uD1A0\uC644\uB8CC' : '\uC791\uC131\uC644\uB8CC';
+              r.approverName = '';
+              r.approverDate = '';
+            }
           });
           renderLists();
         }
-        showToast('처리 완료!', 'success');
+        showToast('\uCC98\uB9AC \uC644\uB8CC!', 'success');
       } else {
         alert(res.message);
       }
     })
     .withFailureHandler(function() {
       hideCardLoading(recordId);
-      alert('서버 통신 오류');
+      alert('\uCC98\uB9AC \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.');
     })
-    .processRecordAction(recordId, action, state.user.id, state.user.name, getCurrentRole());
+    .processRecordAction(recordId, action === 'CANCEL' ? 'RESET_TO_WRITING' : action, state.user.id, state.user.name, getCurrentRole(), customActionDate);
 }
 </script>

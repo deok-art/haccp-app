@@ -1,0 +1,86 @@
+{
+  "doc_info": {
+    "title": "개인 위생 점검일지",
+    "doc_no": "PBII-SI-02-04",
+    "rev_no": "미표기",
+    "period": "매일"
+  },
+  "items": [
+    {
+      "key": "health_diarrhea",
+      "label": "건강상태: 설사 (현재 또는 2주 이내)",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "health_fever",
+      "label": "건강상태: 기침, 발열 (37.5℃ 이상)",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "health_stomach",
+      "label": "건강상태: 복통, 구토",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "health_discharge",
+      "label": "건강상태: 진물, 고름 (눈, 귀, 코)",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "health_skin",
+      "label": "건강상태: 피부감염 (화상, 화농성 질환 등)",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "hygiene_clothing",
+      "label": "개인위생: 위생복장 (복, 모, 화, 앞치마, 토시 등)",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "hygiene_grooming",
+      "label": "개인위생: 두발, 손톱 등 위생상태",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "entry_belongings",
+      "label": "입실기준: 개인 소지품 소지 유무",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "entry_procedure",
+      "label": "입실기준: 위생전실 절차 준수",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "entry_handwash",
+      "label": "입실기준: 손세척, 소독 준수여부",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "remarks",
+      "label": "비고",
+      "type": "text",
+      "required_defect_action": false
+    }
+  ]
+}

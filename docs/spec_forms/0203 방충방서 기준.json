@@ -1,0 +1,50 @@
+{
+  "doc_info": {
+    "title": "방충·방서 관리 기준 (동절기/하절기)",
+    "doc_no": "기준서-Pest-01",
+    "rev_no": "1.0",
+    "description": "해충 발생 수에 따른 단계별 조치사항 자동 매핑용"
+  },
+  "standard_data": {
+    "winter": {
+      "period": "10월~3월",
+      "levels": [
+        {
+          "level": "1단계",
+          "conditions": { "flying": [11, 20], "crawling": [3, 5], "rodent": 1 },
+          "actions": ["출입문 틈새 확인", "창문 밀폐 확인", "작업 상태 확인", "설비 점검"]
+        },
+        {
+          "level": "2단계",
+          "conditions": { "flying": [21, 30], "crawling": [6, 10], "rodent": 1 },
+          "actions": ["1단계 포함", "방충방서 업체 즉시 점검 요청", "서식장소 확인"]
+        },
+        {
+          "level": "3단계",
+          "conditions": { "flying": 31, "crawling": 11, "rodent": 1 },
+          "actions": ["2단계 포함", "구제 실시"]
+        }
+      ]
+    },
+    "summer": {
+      "period": "4월~9월",
+      "levels": [
+        {
+          "level": "1단계",
+          "conditions": { "flying": [21, 30], "crawling": [5, 7], "rodent": 1 },
+          "actions": ["출입문 틈새 확인", "창문 밀폐 확인", "설비 점검"]
+        },
+        {
+          "level": "2단계",
+          "conditions": { "flying": [31, 50], "crawling": [8, 14], "rodent": 1 },
+          "actions": ["1단계 포함", "업체 즉시 점검 요청", "서식장소 및 취약지역 확인"]
+        },
+        {
+          "level": "3단계",
+          "conditions": { "flying": 51, "crawling": 15, "rodent": 1 },
+          "actions": ["2단계 포함", "구제 실시"]
+        }
+      ]
+    }
+  }
+}

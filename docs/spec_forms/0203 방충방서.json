@@ -1,0 +1,66 @@
+{
+  "doc_info": {
+    "title": "방충·방서 점검표",
+    "doc_no": "PBII-SI-02-03",
+    "rev_no": "미표기",
+    "period": "하절기 1회/주, 동절기 1회/2주"
+  },
+  "items": [
+    {
+      "key": "pest_monitoring_flying",
+      "label": "비래해충 점검 (깔다구, 모기, 파리, 날파리, 나방, 기타)",
+      "type": "numeric",
+      "criteria": { "unit": "개체수" },
+      "required_defect_action": true
+    },
+    {
+      "key": "pest_monitoring_crawling",
+      "label": "보행해충 점검 (개미, 그리마, 귀뚜라미, 기타)",
+      "type": "numeric",
+      "criteria": { "unit": "개체수" },
+      "required_defect_action": true
+    },
+    {
+      "key": "rodent_control",
+      "label": "쥐 모니터링",
+      "type": "numeric",
+      "criteria": { "unit": "개체수" },
+      "required_defect_action": true
+    },
+    {
+      "key": "trap_check_power",
+      "label": "포충등 전원 상태",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "trap_check_cleaning",
+      "label": "포충등 청소 상태",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "expendable_uv_lamp",
+      "label": "소모품 관리: UV등",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "expendable_cover",
+      "label": "소모품 관리: 커버 관리",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    },
+    {
+      "key": "expendable_sticky_trap",
+      "label": "소모품 관리: 끈끈이",
+      "type": "select",
+      "options": ["○", "×"],
+      "required_defect_action": true
+    }
+  ]
+}

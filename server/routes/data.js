@@ -1,6 +1,7 @@
 const express = require('express');
 const { db, safeJson, today } = require('../db');
 const { requireAuth }         = require('../middleware/session');
+const { buildCalendarSummary, ensureFactoryCalendarDefaults } = require('../factory-calendar');
 
 const router = express.Router();
 
@@ -34,11 +35,37 @@ function deriveTitle(user) {
   return user.rank || '';
 }
 
+function createUtcDate(dateStr) {
+  const [year, month, day] = String(dateStr || '').split('-').map(Number);
+  return new Date(Date.UTC(year, (month || 1) - 1, day || 1));
+}
+
+function formatUtcDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function getWeekBounds(dateStr) {
+  const date = createUtcDate(dateStr);
+  const day = date.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(date);
+  monday.setUTCDate(monday.getUTCDate() + diff);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(sunday.getUTCDate() + 6);
+  return {
+    from: formatUtcDate(monday),
+    to: formatUtcDate(sunday),
+  };
+}
+
 // POST /api/getInitialData
 router.post('/getInitialData', requireAuth, (req, res) => {
-  try {
+  Promise.resolve().then(async () => {
     const caller = req.session.user;
     const todayStr = today();
+    const currentWeek = getWeekBounds(todayStr);
+    const currentMonth = todayStr.slice(0, 7);
+    ensureFactoryCalendarDefaults(db);
 
     const logTemplates = db.prepare('SELECT * FROM log_templates').all().map(t => ({
       logId:     t.log_id,
@@ -71,12 +98,18 @@ router.post('/getInitialData', requireAuth, (req, res) => {
     const placeholders = userFactories.map(() => '?').join(',');
     const rawRecords = userFactories.length
       ? db.prepare(
-          `SELECT r.*, u.factory_roles as wr_roles FROM records r
+          `SELECT r.*, u.factory_roles as wr_roles, COALESCE(t.interval, 'daily') as template_interval FROM records r
            LEFT JOIN users u ON r.writer_id = u.id
+           LEFT JOIN log_templates t ON r.log_id = t.log_id
            WHERE r.factory_id IN (${placeholders})
-             AND (r.date = ? OR r.status NOT IN ('승인완료'))
+             AND (
+               r.status NOT IN ('승인완료')
+               OR (COALESCE(t.interval, 'daily') = 'daily' AND r.date = ?)
+               OR (COALESCE(t.interval, 'daily') = 'weekly' AND r.date >= ? AND r.date <= ?)
+               OR (COALESCE(t.interval, 'daily') = 'monthly' AND substr(r.date, 1, 7) = ?)
+             )
            ORDER BY r.date DESC, r.created_at DESC`
-        ).all(...userFactories, todayStr)
+        ).all(...userFactories, todayStr, currentWeek.from, currentWeek.to, currentMonth)
       : [];
 
     const records = rawRecords.map(r => {
@@ -88,16 +121,21 @@ router.post('/getInitialData', requireAuth, (req, res) => {
         date:         r.date,
         writerId:     r.writer_id,
         writerName:   r.writer_name,
+        writerDate:   r.writer_date || r.date,
         reviewerId:   r.reviewer_id,
         reviewerName: r.reviewer_name,
+        reviewerDate: r.reviewer_date || '',
         approverId:   r.approver_id,
         approverName: r.approver_name,
+        approverDate: r.approver_date || '',
         status:       r.status,
         defectInfo:   r.defect_info,
         factoryId:    r.factory_id,
         writerRole:   wrRoles[r.factory_id] || 0,
       };
     });
+
+    const calendarSummary = await buildCalendarSummary(userFactories, todayStr, db);
 
     res.json({
       success: true,
@@ -107,11 +145,12 @@ router.post('/getInitialData', requireAuth, (req, res) => {
       records,
       serverToday: todayStr,
       logTemplates,
+      calendarSummary,
     });
-  } catch (err) {
+  }).catch(err => {
     console.error('[getInitialData]', err);
     res.json({ success: false, message: err.message });
-  }
+  });
 });
 
 // POST /api/getRecordDetail
@@ -131,8 +170,11 @@ router.post('/getRecordDetail', requireAuth, (req, res) => {
     dataJson:           safeJson(rec.data_json, {}),
     writerId:           rec.writer_id,
     writerName:         rec.writer_name,
+    writerDate:         rec.writer_date || rec.date,
     reviewerName:       rec.reviewer_name,
+    reviewerDate:       rec.reviewer_date || '',
     approverName:       rec.approver_name,
+    approverDate:       rec.approver_date || '',
     writerSignature:    writerUser   ? writerUser.signature   : '',
     reviewerSignature:  reviewerUser ? reviewerUser.signature : '',
     approverSignature:  approverUser ? approverUser.signature : '',
@@ -160,10 +202,13 @@ router.post('/getRecordsForDateRange', requireAuth, (req, res) => {
     date:         r.date,
     writerId:     r.writer_id,
     writerName:   r.writer_name,
+    writerDate:   r.writer_date || r.date,
     reviewerId:   r.reviewer_id,
     reviewerName: r.reviewer_name,
+    reviewerDate: r.reviewer_date || '',
     approverId:   r.approver_id,
     approverName: r.approver_name,
+    approverDate: r.approver_date || '',
     status:       r.status,
     defectInfo:   r.defect_info,
     factoryId:    r.factory_id,

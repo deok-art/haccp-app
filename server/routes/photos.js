@@ -1,18 +1,20 @@
 const express = require('express');
-const path    = require('path');
 const fs      = require('fs');
+const path    = require('path');
+const { UPLOAD_DIR } = require('../db');
 const { requireAuth } = require('../middleware/session');
 
 const router    = express.Router();
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // POST /api/savePhoto
 // args: [recordId, fieldKey, base64DataUrl]  (gs_polyfill은 args 배열로 전달)
 router.post('/savePhoto', requireAuth, (req, res) => {
-  const [recordId, fieldKey, base64DataUrl] = req.body;
-  if (!recordId || !fieldKey || !base64DataUrl) {
+  // args: [recordId, logId, logTitle, itemLabel, type, base64DataUrl]
+  const [recordId, , , itemLabel, type, base64DataUrl] = req.body;
+  const fieldKey = (itemLabel || '') + '_' + (type || '');
+  if (!recordId || !base64DataUrl) {
     return res.json({ success: false, message: '파라미터가 올바르지 않습니다.' });
   }
 
@@ -23,6 +25,8 @@ router.post('/savePhoto', requireAuth, (req, res) => {
   const mime   = match[1];
   const ext    = mime.split('/')[1] || 'jpg';
   const buffer = Buffer.from(match[2], 'base64');
+
+  if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
   const filename = `${recordId}_${fieldKey}_${Date.now()}.${ext}`;
   const filePath = path.join(UPLOAD_DIR, filename);

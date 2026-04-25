@@ -7,7 +7,6 @@
 </head>
 <body>
 
-<!-- ── 로딩 오버레이 ── -->
 <div id="loading-overlay" class="overlay">
   <div class="spinner"></div>
   <p id="loading-msg">시스템 로딩 중...</p>
@@ -15,15 +14,11 @@
     style="margin-top:20px;padding:10px;cursor:pointer;">새로고침</button>
 </div>
 
-<!-- ── 토스트 컨테이너 ── -->
 <div id="toast-container"
   style="position:fixed;top:70px;right:15px;z-index:9998;display:flex;flex-direction:column;gap:8px;"></div>
 
 <div id="app" class="hidden">
 
-  <!-- ══════════════════════════════════
-       공장 선택 화면
-  ══════════════════════════════════ -->
   <div id="factory-select-screen" class="container hidden">
     <div class="login-card">
       <div id="logo-container-factory" class="logo-area" style="margin-bottom:15px;min-height:40px;"></div>
@@ -33,67 +28,59 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════
-       로그인 화면
-  ══════════════════════════════════ -->
   <div id="login-screen" class="container hidden">
     <div class="login-card">
       <div id="logo-container-login" class="logo-area" style="margin-bottom:15px;min-height:40px;"></div>
-      <h2 id="factory-name-login" style="margin-top:0;margin-bottom:30px;">순수본 HACCP 스마트 팩토리</h2>
-      <input type="text"     id="user-id" placeholder="아이디"  class="input-field" value="admin" onkeydown="loginKeydown(event)">
-      <input type="password" id="user-pw" placeholder="비밀번호" class="input-field" value="0000"  onkeydown="loginKeydown(event)">
-      <button onclick="handleLogin()" class="btn-primary">접속하기</button>
+      <h2 id="factory-name-login" style="margin-top:0;margin-bottom:30px;">HACCP 스마트 팩토리</h2>
+      <input type="text" id="user-id" placeholder="아이디" class="input-field" value="admin" onkeydown="loginKeydown(event)">
+      <input type="password" id="user-pw" placeholder="비밀번호" class="input-field" value="0000" onkeydown="loginKeydown(event)">
+      <button onclick="handleLogin()" class="btn-primary">로그인</button>
     </div>
   </div>
 
-  <!-- ══════════════════════════════════
-       메인 화면
-  ══════════════════════════════════ -->
   <div id="main-screen" class="hidden">
-    <div id="ptr-indicator" class="ptr-indicator">↓ 아래로 당기세요</div>
+    <div id="ptr-indicator" class="ptr-indicator">아래로 당기면 새로고침</div>
 
     <header class="common-header">
       <div class="header-left">
         <div id="logo-container-main"
           style="margin-right:12px;font-weight:bold;font-size:18px;color:var(--primary);"></div>
-        <!-- 관리자 전용 버튼 (권한3 이상에게만 표시) -->
         <button id="admin-post-btn" class="hidden" onclick="openPostWriter()"
           style="background:var(--danger);color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;margin-right:5px;">
-          🚨 사후작성
+          사후작성
         </button>
-        <button onclick="runTestDataSetup()"
-          style="background:var(--warning);color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;">
-          테스트
+        <button id="calendar-manage-btn" class="hidden" onclick="openCalendarManagement()"
+          style="background:#16a085;color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;margin-right:5px;">
+          팩토리캘린더
         </button>
         <button id="print-btn" onclick="openPrintModal()"
           style="background:var(--accent);color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;margin-left:4px;">
-          🖨 인쇄
+          인쇄
         </button>
       </div>
       <div class="user-info">
         <button id="factory-switch-btn" onclick="switchFactory()"
           style="background:rgba(44,62,80,0.08);color:var(--primary);border:1px solid rgba(44,62,80,0.15);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px;margin-right:6px;">
-          🏭 <span id="current-factory-name"></span>
+          공장 <span id="current-factory-name"></span>
         </button>
-        <strong id="display-user"></strong> 님
-        <button id="user-mgmt-btn" class="hidden" onclick="openUserManagement()" class="btn-info"
+        <strong id="display-user"></strong>
+        <button id="user-mgmt-btn" class="hidden" onclick="openUserManagement()"
           style="background:rgba(44,62,80,0.08);color:var(--primary);border:1px solid rgba(44,62,80,0.15);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-right:4px;">
-          👥 사용자관리
+          사용자관리
         </button>
-        <button onclick="openMyInfo()"   class="btn-info">내 정보</button>
+        <button id="my-info-btn" onclick="openMyInfo()" class="btn-info">내정보</button>
         <button onclick="handleLogout()" class="btn-logout">로그아웃</button>
       </div>
     </header>
 
     <div id="notice-box" class="notice-box">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="color:#d35400;">📢 공지사항</strong>
+        <strong style="color:#d35400;">공지사항</strong>
         <span style="cursor:pointer;color:#888;font-size:20px;line-height:1;" onclick="toggleNotice()">×</span>
       </div>
-      <div style="margin-top:5px;font-size:13px;color:#555;">- 점검 시 특이사항은 사진을 꼭 첨부하세요.</div>
+      <div style="margin-top:5px;font-size:13px;color:#555;">- 점검 이상사항과 사진은 꼭 첨부해주세요.</div>
     </div>
 
-    <!-- 탭 -->
     <div class="tab-container">
       <button id="tab-todo" class="tab-btn active" onclick="switchTab('todo')">
         작성/미작성 <span id="todo-count" class="count-badge">0</span>
@@ -101,6 +88,9 @@
       <button id="tab-done" class="tab-btn" onclick="switchTab('done')"
         onpointerdown="startPress(event,'SELECT_MODE')" onpointerup="cancelPress()" onpointerleave="cancelPress()">
         결재/진행 현황 <span id="done-count" class="count-badge">0</span>
+      </button>
+      <button id="tab-missing" class="tab-btn" onclick="switchTab('missing')">
+        누락 확인 <span id="missing-count" class="count-badge">0</span>
       </button>
     </div>
 
@@ -114,6 +104,7 @@
         </div>
         <div id="todo-list"></div>
       </section>
+
       <section id="done-section" class="list-section hidden">
         <div class="sub-filter-container">
           <button class="sub-filter-btn active" onclick="filterDoneList('all',this)"
@@ -141,44 +132,47 @@
         </div>
         <div id="done-list" class="done-list-container"></div>
       </section>
+
+      <section id="missing-section" class="list-section hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 10px 0;flex-wrap:wrap;">
+          <div style="font-size:12px;color:#666;">팩토리캘린더 기준으로 작성 누락만 계산합니다.</div>
+          <input type="month" id="missing-month-input" onchange="changeMissingMonth(this.value)"
+            style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+        </div>
+        <div id="missing-list"></div>
+      </section>
     </main>
 
-    <!-- 선택 모드 하단 바 -->
     <div id="selection-bar" class="selection-bar hidden">
-      <span id="selected-count" style="font-weight:bold;">0개 선택됨</span>
+      <span id="selected-count" style="font-weight:bold;">0개 선택</span>
       <div style="display:flex;gap:8px;align-items:center;">
         <button id="select-all-btn" onclick="toggleSelectAll()"
           style="padding:7px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.4);background:rgba(255,255,255,0.15);color:white;font-size:12px;font-weight:bold;cursor:pointer;">전체선택</button>
         <button class="action-btn btn-cancel" onclick="closeSelectMode()">취소</button>
-        <button id="batch-revoke-btn"  class="action-btn" style="background:#9b59b6;color:white;" onclick="executeBatchRevoke()">선택 승인취소</button>
-        <button id="batch-approve-btn" class="action-btn btn-approve"                              onclick="executeBatchApprove()">선택 일괄승인</button>
+        <button id="batch-revoke-btn" class="action-btn" style="background:#9b59b6;color:white;" onclick="executeBatchRevoke()">선택 승인취소</button>
+        <button id="batch-approve-btn" class="action-btn btn-approve" onclick="executeBatchApprove()">선택 일괄승인</button>
       </div>
     </div>
 
     <footer class="system-footer">
-      HACCP 스마트 관리 시스템 v3.0 | ⓒ <span id="footer-company"></span><br>
-      <strong style="color:var(--danger)">대외비 (무단 복제 및 배포 금지)</strong>
+      HACCP 스마트관리 시스템 v3.0 | <span id="footer-company"></span><br>
+      <strong style="color:var(--danger)">무단 복제 및 배포 금지</strong>
     </footer>
   </div>
 
-  <!-- ══════════════════════════════════
-       폼 화면 (일지 작성)
-  ══════════════════════════════════ -->
   <div id="form-screen" class="hidden">
     <header class="form-header">
-      <button onclick="saveDraftAndBack()" class="form-back-btn">💾 저장 후 나가기</button>
+      <button onclick="saveDraftAndBack()" class="form-back-btn">저장하고 나가기</button>
       <div style="flex:1;text-align:center;">
         <h2 id="form-title" style="margin:0;font-size:15px;">일지 작성</h2>
         <div id="form-doc-info" style="font-size:11px;color:#e0e0e0;margin-top:2px;"></div>
       </div>
-      <button onclick="openSignModal()" class="form-back-btn">✍ 서명하기</button>
+      <button id="pest-criteria-btn" class="form-back-btn hidden" onclick="openPestCriteriaModal(_engineConfig)">기준 확인</button>
+      <button onclick="openSignModal()" class="form-back-btn">서명하기</button>
     </header>
 
-    <!--
-      form-scroll-area: js_form.html의 openForm()이 일지 종류에 따라
-      이 영역의 innerHTML을 교체함.
-      아래 기본 내용은 P01(위생점검) 폴백 양식 + genericFormHtml 캐시용.
-    -->
+    <div id="pest-action-panel" class="hidden" style="padding:6px 12px 0;"></div>
+
     <div class="form-container" id="form-scroll-area">
       <div class="form-section">
         <h3>1. 점검 기본 정보</h3>
@@ -187,7 +181,7 @@
           <input type="text" id="f-date" readonly class="input-readonly">
         </div>
         <div class="input-group">
-          <label>점검자</label>
+          <label>작성자</label>
           <input type="text" id="f-writer" readonly class="input-readonly">
         </div>
       </div>
@@ -195,7 +189,7 @@
       <div class="form-section">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
           <h3 style="margin:0;">2. 위생 점검 항목</h3>
-          <button onclick="setAllOk()" class="btn-all-ok">✔ 전체 적합</button>
+          <button onclick="setAllOk()" class="btn-all-ok">전체 적합</button>
         </div>
         <div id="check-items-container"></div>
       </div>
@@ -204,7 +198,7 @@
         <h3>3. 작업장 온도 측정 <span style="color:var(--danger);font-size:12px;">*필수</span></h3>
         <div class="input-group">
           <label>작업장 온도 (℃)</label>
-          <input type="number" id="f-temp" placeholder="예) 18.5" step="0.1" class="input-number">
+          <input type="number" id="f-temp" placeholder="예: 18.5" step="0.1" class="input-number">
         </div>
       </div>
 
@@ -215,9 +209,6 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════
-       이미지 편집 모달
-  ══════════════════════════════════ -->
   <div id="img-edit-modal" class="modal hidden">
     <div class="modal-content" style="width:95%;max-width:600px;padding:15px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -226,37 +217,35 @@
       </div>
       <canvas id="edit-canvas" style="width:100%;border:1px solid #ddd;border-radius:8px;touch-action:none;"></canvas>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-        <button onclick="setEditTool('circle')" id="tool-circle" class="edit-tool-btn active">⭕ 원</button>
-        <button onclick="setEditTool('line')"   id="tool-line"   class="edit-tool-btn">📏 선</button>
-        <button onclick="setEditTool('arrow')"  id="tool-arrow"  class="edit-tool-btn">➡ 화살표</button>
+        <button onclick="setEditTool('circle')" id="tool-circle" class="edit-tool-btn active">원</button>
+        <button onclick="setEditTool('line')" id="tool-line" class="edit-tool-btn">선</button>
+        <button onclick="setEditTool('arrow')" id="tool-arrow" class="edit-tool-btn">화살표</button>
         <input type="color" id="edit-color" value="#ff0000"
           style="width:40px;height:36px;border:none;cursor:pointer;border-radius:6px;"
           onchange="editState.color=this.value">
-        <button onclick="undoEdit()"        class="edit-tool-btn">↩ 실행취소</button>
-        <button onclick="clearEditCanvas()" class="edit-tool-btn" style="background:#fde8e8;color:var(--danger);">🗑 전체삭제</button>
-        <button onclick="confirmEdit()"     class="edit-tool-btn" style="background:var(--success);color:white;margin-left:auto;">✔ 완료</button>
+        <button onclick="undoEdit()" class="edit-tool-btn">실행취소</button>
+        <button onclick="clearEditCanvas()" class="edit-tool-btn" style="background:#fde8e8;color:var(--danger);">전체삭제</button>
+        <button onclick="confirmEdit()" class="edit-tool-btn" style="background:var(--success);color:white;margin-left:auto;">완료</button>
       </div>
     </div>
   </div>
 
-</div><!-- /#app -->
+</div>
 
-<!-- ── 프린트 오버레이 ── -->
 <div id="print-overlay" class="hidden">
   <div id="print-overlay-toolbar">
     <button onclick="triggerWindowPrint()"
       style="padding:8px 18px;border-radius:8px;border:none;background:var(--primary);color:white;font-weight:bold;cursor:pointer;font-size:13px;">
-      🖨 인쇄/PDF저장
+      인쇄/PDF 저장
     </button>
     <button onclick="closePrintOverlay()"
       style="padding:8px 14px;border-radius:8px;border:1px solid #999;background:white;cursor:pointer;font-size:13px;">
-      ✕ 닫기
+      닫기
     </button>
   </div>
   <div id="print-overlay-content"></div>
 </div>
 
-<!-- ── 공통 모달 ── -->
 <div id="modal" class="modal hidden">
   <div class="modal-content">
     <div id="modal-header" class="modal-header">
@@ -267,26 +256,14 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════════
-     JS 파일 인클루드 순서 (의존성 순)
-     1. core   : 전역 state, IDB, 인증
-     2. render : 목록 렌더링
-     3. form   : 폼 라우팅/제출
-     4. ui     : 모달/서명/배치
-     5. photo  : 사진/편집
-     6. 일지별 파일 (알파벳 순)
-══════════════════════════════════ -->
 <?!= include('js_core'); ?>
 <?!= include('js_render'); ?>
 <?!= include('js_form'); ?>
 <?!= include('js_ui'); ?>
+<?!= include('js_calendar'); ?>
 <?!= include('js_photo'); ?>
-
-<!-- 폼 엔진 (적합/부적합 체크리스트 공통 렌더링·데이터 처리) -->
 <?!= include('js_form_engine'); ?>
-<!-- 인쇄 공통 템플릿 (모든 양식 공유) -->
 <?!= include('js_print_template'); ?>
-<!-- 인쇄/PDF -->
 <?!= include('js_print'); ?>
 
 </body>

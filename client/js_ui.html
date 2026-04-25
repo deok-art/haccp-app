@@ -19,6 +19,11 @@ function closeModal() {
 function openMyInfo() {
   var roles    = state.user.factoryRoles    || {};
   var deputies = state.user.factoryDeputies || {};
+  var signatureHtml = state.user.signature
+    ? '<div style="margin:8px 0 12px 0;padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fafafa;text-align:center;">' +
+        '<img src="' + state.user.signature + '" alt="전자서명" style="max-width:100%;max-height:120px;object-fit:contain;">' +
+      '</div>'
+    : '<p style="margin:8px 0 12px 0;padding:12px;border:1px dashed #d0d7de;border-radius:10px;background:#fafafa;color:#777;text-align:center;">등록된 전자서명 없음</p>';
   var roleNames = { '1': '작성자', '2': '검토자', '3': 'HACCP팀장' };
   var roleLines = state.factories.map(function(f) {
     var r = roles[f.id];
@@ -31,9 +36,12 @@ function openMyInfo() {
     '<p><strong>이름:</strong> ' + state.user.name + '</p>' +
     '<p><strong>계급:</strong> ' + (state.user.rank || '-') + '</p>' +
     '<p><strong>공장별 권한:</strong></p>' +
-    '<ul style="margin:5px 0 10px 20px;padding:0;">' + (roleLines || '<li>없음</li>') + '</ul><hr>' +
-    '<button onclick="showChangePw()" class="btn-primary" style="margin-bottom:10px;padding:10px;">비밀번호 변경</button><br>' +
-    '<button onclick="forceSignature(true)" class="btn-primary" style="padding:10px;">전자서명 재등록</button>',
+    '<ul style="margin:5px 0 10px 20px;padding:0;">' + (roleLines || '<li>없음</li>') + '</ul>' +
+    '<p><strong>전자서명:</strong></p>' +
+    signatureHtml +
+    '<hr>' +
+    '<button id="change-pw-btn" onclick="showChangePw()" class="btn-primary" style="margin-bottom:10px;padding:10px;">비밀번호 변경</button><br>' +
+    '<button id="reregister-signature-btn" onclick="forceSignature(true)" class="btn-primary" style="padding:10px;">전자서명 재등록</button>',
     true);
 }
 
@@ -41,7 +49,7 @@ function showChangePw() {
   openModal('비밀번호 변경',
     '<input type="password" id="new-pw"      class="input-field" placeholder="새 비밀번호">' +
     '<input type="password" id="new-pw-conf" class="input-field" placeholder="비밀번호 확인">' +
-    '<button onclick="submitNewPw()" class="btn-primary">변경 완료</button>',
+    '<button id="submit-new-pw-btn" onclick="submitNewPw()" class="btn-primary">변경 완료</button>',
     true);
 }
 
@@ -238,7 +246,7 @@ function executeTodayCreateBatch() {
   var todayStr  = state.serverToday;
 
   var dailyLogs = (state.logs || []).filter(function(l) {
-    return (l.factoryId || 'pb2') === factoryId && String(l.interval) === '일간';
+    return (l.factoryId || 'pb2') === factoryId && String(l.interval) === 'daily';
   });
   if (!dailyLogs.length) { showToast('등록된 일간 일지가 없습니다.', 'info'); return; }
 
@@ -366,9 +374,9 @@ function openUserManagement() {
   google.script.run
     .withSuccessHandler(function(res) {
       if (!res.success) { alert(res.message || '오류'); return; }
-      _umUsers     = res.users;
-      _umFactories = res.factories;
-      _umIsMaster  = res.requesterIsMaster;
+      _umUsers     = Array.isArray(res.users) ? res.users : [];
+      _umFactories = Array.isArray(res.factories) ? res.factories : [];
+      _umIsMaster  = !!res.requesterIsMaster;
       renderUserManagement();
     })
     .withFailureHandler(function(e) { alert('오류: ' + e.message); })
@@ -613,22 +621,13 @@ function saveUserCard(btn, targetId) {
     .updateUserInfo(state.user.id, targetId, updates);
 }
 
-// ── 관리자 기능 ────────────────────────────────────────
-function runTestDataSetup() {
-  if (!confirm('테스트 일지 5종을 생성합니다.')) return;
-  showLoading('세팅 중...');
-  google.script.run
-    .withSuccessHandler(function() { showToast('세팅 완료!', 'success'); loadData(); switchTab('done'); })
-    .generateTestRecords();
-}
-
 // ⑤ 사후작성 — 날짜 선택 시 미작성 일지 목록 표시, 체크 선택 후 일괄생성
 function openPostWriter() {
   openModal('🗂 사후 작성 생성',
     '<p style="font-size:12px;color:#e74c3c;margin:0 0 12px;">* 관리자 전용: 과거 날짜 일지 생성</p>' +
     '<div style="margin-bottom:12px;">' +
       '<label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">날짜 선택</label>' +
-      '<input type="date" id="post-date" class="input-field" style="margin:0;" value="' + state.serverToday + '" onchange="loadPostWriterLogs()">' +
+      '<input type="date" id="post-date" class="input-field" style="margin:0;" max="' + state.serverToday + '" value="' + state.serverToday + '" onchange="loadPostWriterLogs()">' +
     '</div>' +
     '<div id="post-log-list" style="margin-bottom:12px;"></div>' +
     '<button onclick="executePostCreateBatch()" class="btn-primary" style="background:var(--success);">✔ 선택 일지 생성</button>',
@@ -647,6 +646,11 @@ function loadPostWriterLogs() {
   if (!dateEl || !listEl) return;
 
   var selectedDate = dateEl.value;
+  if (selectedDate > state.serverToday) {
+    dateEl.value = state.serverToday;
+    selectedDate = state.serverToday;
+    showToast('미래 날짜 일지는 미리 작성할 수 없습니다.', 'info');
+  }
   if (!selectedDate) { listEl.innerHTML = ''; return; }
 
   // 해당 날짜에 이미 생성/작성된 logId 목록 (작성중 포함, 중복 생성 방지)
@@ -706,6 +710,7 @@ function togglePostSelectAll() {
 function executePostCreateBatch() {
   var date      = document.getElementById('post-date').value;
   var checked   = document.querySelectorAll('.post-log-check:checked');
+  if (date > state.serverToday) { showToast('미래 날짜 일지는 미리 작성할 수 없습니다.', 'error'); return; }
   if (!date)           { showToast('날짜를 선택해주세요.', 'error'); return; }
   if (!checked.length) { showToast('생성할 일지를 선택해주세요.', 'error'); return; }
 

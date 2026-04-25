@@ -5,9 +5,13 @@
 
 // ── 전역 에러 핸들러 ──────────────────────────────────────
 window.onerror = function(msg, url, line) {
+  var isDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  var selectable = isDev ? 'user-select:text;cursor:text;' : 'user-select:none;';
   document.body.innerHTML =
     '<div style="padding:20px;color:red;font-weight:bold;text-align:center;">' +
-    '<h3>시스템 오류 발생</h3><p>' + msg + ' (Line:' + line + ')</p>' +
+    '<h3>시스템 오류 발생</h3>' +
+    '<p style="' + selectable + '">' + msg + ' (Line:' + line + ')</p>' +
+    (isDev ? '<p style="font-size:12px;color:#666;font-weight:normal;">※ 개발환경: 텍스트 드래그로 복사 가능</p>' : '') +
     '<button onclick="location.reload()" style="padding:10px;margin-top:20px;">새로고침</button></div>';
 };
 
@@ -59,7 +63,9 @@ var formState = {
   defectTexts:  {},
   actionTexts:  {},
   defectPhotos: {},
-  actionPhotos: {}
+  actionPhotos: {},
+  tempValues:   {},
+  pestAction:   null  // si0203 개선조치 내용 { level, actions, memo, savedAt }
 };
 
 // 이미지 편집 상태
@@ -216,7 +222,7 @@ function loadData() {
   showLoading('데이터 동기화 중...');
   google.script.run
     .withSuccessHandler(function(res) {
-      if (!res.success) { alert('서버 오류: ' + res.message); showLoginScreen(); return; }
+      if (!res.success) { hideLoading(); showLoginScreen(); return; }
       state.settings     = res.settings;
       state.logs         = res.logs;
       state.factories    = res.factories || [{ id: 'pb2', name: '2공장(PBⅡ)' }];
@@ -258,9 +264,11 @@ function showLoading(msg) {
 }
 
 function showToast(msg, type) {
+  var isDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   var t = document.createElement('div');
   t.className = 'toast ' + (type || 'info');
   t.innerText = msg;
+  if (isDev) t.style.userSelect = 'text';
   document.getElementById('toast-container').appendChild(t);
   setTimeout(function() {
     t.style.opacity    = '0';

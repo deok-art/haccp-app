@@ -1,6 +1,7 @@
 const express = require('express');
 const { db, safeJson, now, today } = require('../db');
 const { requireAuth }              = require('../middleware/session');
+const { getDatabasePath, isExplicitTestMode, isTestDbPath } = require('../test-safety');
 
 const router = express.Router();
 
@@ -30,10 +31,15 @@ function formatUser(u) {
   };
 }
 
+function getFactories() {
+  return db.prepare('SELECT factory_id as id, name FROM factories ORDER BY factory_id').all();
+}
+
 // POST /api/getUserList
 router.post('/getUserList', requireAuth, (req, res) => {
   const [requesterId] = req.body;
   const caller = req.session.user;
+  const factories = getFactories();
 
   let users;
   if (caller.isMaster) {
@@ -44,9 +50,12 @@ router.post('/getUserList', requireAuth, (req, res) => {
       .filter(([, r]) => r >= 3).map(([fid]) => fid);
 
     if (!myFactories.length) {
-      return res.json({ success: true, users: [formatUser(
-        db.prepare('SELECT * FROM users WHERE id = ?').get(caller.id)
-      )] });
+      return res.json({
+        success: true,
+        users: [formatUser(db.prepare('SELECT * FROM users WHERE id = ?').get(caller.id))],
+        factories,
+        requesterIsMaster: !!caller.isMaster,
+      });
     }
 
     const all = db.prepare('SELECT * FROM users').all();
@@ -56,7 +65,12 @@ router.post('/getUserList', requireAuth, (req, res) => {
     });
   }
 
-  res.json({ success: true, users: users.map(formatUser) });
+  res.json({
+    success: true,
+    users: users.map(formatUser),
+    factories,
+    requesterIsMaster: !!caller.isMaster,
+  });
 });
 
 // POST /api/updateUserInfo
@@ -153,6 +167,9 @@ router.post('/clearDeputiesByFactories', requireAuth, (req, res) => {
 
 // POST /api/generateTestRecords  (개발용 — 테스트 데이터 생성)
 router.post('/generateTestRecords', requireAuth, (req, res) => {
+  if (!isExplicitTestMode() || !isTestDbPath(getDatabasePath(db))) {
+    return res.status(403).json({ success: false, message: '테스트 환경에서만 사용할 수 있습니다.' });
+  }
   const caller = req.session.user;
   if (!caller.isMaster) return res.json({ success: false, message: '마스터만 사용 가능합니다.' });
 

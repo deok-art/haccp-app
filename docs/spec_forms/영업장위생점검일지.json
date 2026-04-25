@@ -1,0 +1,163 @@
+{
+  "doc_info": {
+    "title": "영업장 위생점검 일지",
+    "doc_no": "PBⅡ-SI-01-03",
+    "rev_no": "미표기",
+    "period": "주 1회"
+  },
+  "items": [
+    {
+      "key": "item_01",
+      "category": "영업장 주변",
+      "label": "영업장은 불결한 장소와 분리되어 있는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_02",
+      "category": "영업장 주변",
+      "label": "주위환경은 깨끗한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_03",
+      "category": "영업장 주변",
+      "label": "유해물질(유해가스, 악취, 연기, 먼지 등)이 발생되지 않는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_04",
+      "category": "영업장 주변",
+      "label": "홍수나 침수의 위험은 없는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_05",
+      "category": "영업장 주변",
+      "label": "주변은 청소가 용이하며 청결한가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_06",
+      "category": "영업장 주변",
+      "label": "쥐, 해충의 유인물은 없는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_07",
+      "category": "영업장 주변",
+      "label": "쥐, 해충의 번식장소가 되는 건물은 없는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_08",
+      "category": "영업장 주변",
+      "label": "영업장 주변에 폐기물은 방치되어 있지 않는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_09",
+      "category": "영업장 주변",
+      "label": "방치된 기구는 없는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_10",
+      "category": "영업장 진입로",
+      "label": "영업장 주변에 자르지 않은 잡초는 없는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_11",
+      "category": "영업장 진입로",
+      "label": "먼지 등을 방지할 수 있도록 포장되어 있는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_12",
+      "category": "영업장 진입로",
+      "label": "물이 고여져 있는 곳은 없는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_13",
+      "category": "건물 주위",
+      "label": "불결한 장소와 일정한 거리를 유지하고 있는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_14",
+      "category": "건물 주위",
+      "label": "바닥과 외벽은 내수처리 되어 있는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_15",
+      "category": "건물 주위",
+      "label": "바닥이 파인 곳이나 물이 고인 곳은 없는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_16",
+      "category": "배수로",
+      "label": "폐수가 역류되지 않는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_17",
+      "category": "배수로",
+      "label": "퇴적물이 축적되어 있지 않는가?",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    }
+  ]
+}

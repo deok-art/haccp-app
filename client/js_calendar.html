@@ -1,0 +1,564 @@
+<script>
+state.calendarSummary = state.calendarSummary || {};
+state.calendarMonth = state.calendarMonth || '';
+state.calendarMonthData = state.calendarMonthData || null;
+state.missingMonth = state.missingMonth || '';
+state.missingItems = state.missingItems || [];
+
+function getCurrentMonthKey() {
+  return String(state.serverToday || '').slice(0, 7);
+}
+
+function clampMonthKey(monthKey) {
+  var currentMonth = getCurrentMonthKey();
+  if (!monthKey) return currentMonth;
+  return String(monthKey) > currentMonth ? currentMonth : String(monthKey);
+}
+
+function getFactoryCalendarSummary(factoryId) {
+  return (state.calendarSummary || {})[factoryId || state.currentFactory] || {};
+}
+
+function getCalendarRequirementForInterval(interval) {
+  var summary = getFactoryCalendarSummary();
+  if (interval === 'weekly') return !!(summary.currentWeek && summary.currentWeek.hasWorkday);
+  if (interval === 'monthly') return !!(summary.currentMonth && summary.currentMonth.hasWorkday);
+  return !!(summary.today && summary.today.isWorkday);
+}
+
+function getCalendarTargetDate(interval, periodKey) {
+  if (interval === 'monthly') return String(periodKey) + '-01';
+  return periodKey;
+}
+
+function loadFactoryCalendarMonth(monthKey, cb) {
+  if (!state.currentFactory || !monthKey) { if (cb) cb(false); return; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        state.calendarMonth = monthKey;
+        state.calendarMonthData = res;
+        if (cb) cb(true, res);
+        return;
+      }
+      if (cb) cb(false, res);
+    })
+    .withFailureHandler(function(err) {
+      if (cb) cb(false, err);
+    })
+    .getFactoryCalendarMonth(state.currentFactory, monthKey);
+}
+
+function loadMissingDashboard(monthKey, cb) {
+  if (!state.currentFactory || !monthKey) { if (cb) cb(false); return; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        state.missingMonth = monthKey;
+        state.missingItems = res.items || [];
+        if (cb) cb(true, res);
+        return;
+      }
+      if (cb) cb(false, res);
+    })
+    .withFailureHandler(function(err) {
+      if (cb) cb(false, err);
+    })
+    .getMissingDashboard(state.currentFactory, monthKey);
+}
+
+function refreshFactoryContext(cb) {
+  var monthKey = state.calendarMonth || getCurrentMonthKey();
+  var missingMonth = state.missingMonth || getCurrentMonthKey();
+  loadFactoryCalendarMonth(monthKey, function() {
+    loadMissingDashboard(missingMonth, function() {
+      renderLists();
+      if (cb) cb();
+    });
+  });
+}
+
+loadData = function() {
+  showLoading('데이터 불러오는 중...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) { hideLoading(); showLoginScreen(); return; }
+      state.settings = res.settings;
+      state.logs = res.logs;
+      state.factories = res.factories || [{ id: 'pb2', name: '2공장(PB2)' }];
+      state.records = res.records;
+      state.serverToday = res.serverToday;
+      state.userMeta = res.userMeta || {};
+      state.logTemplates = res.logTemplates || [];
+      state.calendarSummary = res.calendarSummary || {};
+      state.calendarMonth = state.calendarMonth || getCurrentMonthKey();
+      state.missingMonth = state.missingMonth || getCurrentMonthKey();
+      renderBaseUI();
+      checkSession();
+    })
+    .withFailureHandler(function() {
+      alert('데이터 로드 실패!');
+      hideLoading();
+    })
+    .getInitialData();
+};
+
+refreshRecordsBackground = function(cb) {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        state.records = res.records || [];
+        state.calendarSummary = res.calendarSummary || {};
+        if (state.currentFactory) {
+          refreshFactoryContext(function() {
+            if (cb) cb();
+          });
+          return;
+        }
+        renderLists();
+      }
+      if (cb) cb();
+    })
+    .withFailureHandler(function() {
+      if (cb) cb();
+    })
+    .getInitialData();
+};
+
+var _baseEnterFactory = enterFactory;
+enterFactory = function(factoryId) {
+  _baseEnterFactory(factoryId);
+
+  var role = getCurrentRole();
+  var calendarBtn = document.getElementById('calendar-manage-btn');
+  if (calendarBtn) {
+    if (role >= 2 || state.user.isMaster) calendarBtn.classList.remove('hidden');
+    else calendarBtn.classList.add('hidden');
+  }
+
+  state.calendarMonth = getCurrentMonthKey();
+  state.missingMonth = getCurrentMonthKey();
+  refreshFactoryContext();
+};
+
+renderLists = function() {
+  renderTodoList();
+  renderDoneList();
+  renderMissingList();
+};
+
+renderTodoList = function() {
+  var list = document.getElementById('todo-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  var groups = [
+    { key: 'daily', label: '오늘 일간 일지', cls: 'daily' },
+    { key: 'weekly', label: '이번 주간 일지', cls: 'weekly' },
+    { key: 'monthly', label: '이번 월간 일지', cls: 'monthly' }
+  ];
+
+  var currentFactory = state.currentFactory;
+  var activeRecs = state.records.filter(function(r) {
+    return (r.status === '작성중' || r.status === '미작성') && (r.factoryId || 'pb2') === currentFactory;
+  });
+
+  var totalCount = 0;
+
+  groups.forEach(function(group) {
+    var logsInGroup = state.logs.filter(function(l) {
+      return l.interval === group.key && (l.factoryId || 'pb2') === currentFactory;
+    });
+    if (!logsInGroup.length) return;
+
+    var section = document.createElement('div');
+    section.className = 'interval-section';
+
+    var header = document.createElement('div');
+    header.className = 'interval-header ' + group.cls;
+    header.innerHTML = group.label +
+      '<span style="margin-left:auto;font-size:12px;opacity:0.7;">' + logsInGroup.length + '건</span>';
+    section.appendChild(header);
+
+    logsInGroup.forEach(function(log) {
+      var recsForLog = activeRecs
+        .filter(function(r) { return r.logId === log.id; })
+        .sort(function(a, b) { return String(b.date).localeCompare(String(a.date)); });
+
+      if (recsForLog.length > 0) {
+        recsForLog.forEach(function(rec) {
+          var card = document.createElement('div');
+
+          if (rec.status === '작성중') {
+            card.className = 'log-card writing';
+            card.id = 'log-card-' + rec.recordId;
+            card.innerHTML =
+              '<div class="status-dot writing"></div>' +
+              '<div class="log-card-body">' +
+                '<div class="log-card-title">' + log.title + '</div>' +
+                '<div class="log-card-sub">이어서 작성 · ' + rec.date + '</div>' +
+              '</div>' +
+              '<div class="log-card-action" id="card-action-' + rec.recordId + '">' +
+                '<button class="action-btn btn-submit" onclick="event.stopPropagation();openForm(\'' +
+                  rec.recordId + '\',\'' + log.id + '\',\'' + log.title + '\',\'' + rec.date + '\')">계속 작성</button>' +
+              '</div>';
+          } else {
+            card.className = 'log-card unstarted';
+            card.id = 'log-card-' + rec.recordId;
+            card.innerHTML =
+              '<div class="status-dot unstarted"></div>' +
+              '<div class="log-card-body">' +
+                '<div class="log-card-title">' + log.title + '</div>' +
+                '<div class="log-card-sub">미작성</div>' +
+              '</div>' +
+              '<div class="log-card-action" id="card-action-' + rec.recordId + '"></div>';
+
+            card.onclick = (function(logId, title, cardElem, targetDate) {
+              return function() { startNewLog(logId, title, cardElem, targetDate); };
+            })(log.id, log.title, card, rec.date);
+          }
+
+          section.appendChild(card);
+          totalCount++;
+        });
+        return;
+      }
+
+      if (_renderHasCurrentPeriodDone(log)) return;
+      if (!getCalendarRequirementForInterval(log.interval)) return;
+
+      var card = document.createElement('div');
+      card.className = 'log-card unstarted';
+      card.id = 'log-card-' + log.id;
+      card.innerHTML =
+        '<div class="status-dot unstarted"></div>' +
+        '<div class="log-card-body">' +
+          '<div class="log-card-title">' + log.title + '</div>' +
+          '<div class="log-card-sub">미작성</div>' +
+        '</div>' +
+        '<div class="log-card-action" id="card-action-' + log.id + '"></div>';
+
+      card.onclick = (function(logId, title, cardElem) {
+        return function() { startNewLog(logId, title, cardElem, state.serverToday); };
+      })(log.id, log.title, card);
+
+      section.appendChild(card);
+      totalCount++;
+    });
+
+    list.appendChild(section);
+  });
+
+  document.getElementById('todo-count').innerText = totalCount;
+};
+
+startNewLog = function(logId, title, cardElem, targetDate) {
+  var workDate = targetDate || state.serverToday;
+  if (cardElem) cardElem.onclick = null;
+  showLoading('일지 생성 중...');
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        var existingRec = state.records.find(function(r) { return r.recordId === res.recordId; });
+        if (existingRec) {
+          existingRec.status = '작성중';
+          existingRec.date = existingRec.date || workDate;
+          existingRec.writerDate = existingRec.writerDate || workDate;
+          existingRec.factoryId = existingRec.factoryId || state.currentFactory || 'pb2';
+          existingRec.writerId = existingRec.writerId || state.user.id;
+          existingRec.writerName = existingRec.writerName || state.user.name;
+          if (existingRec.reviewerName === undefined && existingRec.reviewer) existingRec.reviewerName = existingRec.reviewer;
+          if (existingRec.approverName === undefined && existingRec.approver) existingRec.approverName = existingRec.approver;
+        } else {
+          state.records.push({
+            recordId: res.recordId,
+            logId: logId,
+            title: title,
+            date: workDate,
+            writerId: state.user.id,
+            writerName: state.user.name,
+            writerDate: workDate,
+            reviewerId: '',
+            reviewerName: '',
+            reviewerDate: '',
+            approverId: '',
+            approverName: '',
+            approverDate: '',
+            writerRole: getCurrentRole(),
+            factoryId: state.currentFactory || 'pb2',
+            status: '작성중',
+            defectInfo: ''
+          });
+        }
+        openForm(res.recordId, logId, title, workDate);
+      } else {
+        hideLoading();
+        showToast('일지 생성 실패: ' + (res && res.message ? res.message : ''), 'error');
+        if (cardElem) {
+          cardElem.onclick = function() { startNewLog(logId, title, cardElem, workDate); };
+        }
+      }
+    })
+    .withFailureHandler(function() {
+      hideLoading();
+      showToast('서버 통신 오류입니다. 다시 시도해주세요.', 'error');
+      if (cardElem) {
+        cardElem.onclick = function() { startNewLog(logId, title, cardElem, workDate); };
+      }
+    })
+    .createNewLog(logId, title, state.user.id, state.user.name, workDate, state.currentFactory);
+};
+
+function renderMissingList() {
+  var list = document.getElementById('missing-list');
+  if (!list) return;
+  var input = document.getElementById('missing-month-input');
+  if (input) {
+    input.max = getCurrentMonthKey();
+    if (state.missingMonth) input.value = state.missingMonth;
+  }
+
+  if (!state.missingItems || !state.missingItems.length) {
+    list.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">선택한 기간의 누락 일지가 없습니다.</p>';
+    document.getElementById('missing-count').innerText = '0';
+    return;
+  }
+
+  var html = '';
+  state.missingItems.forEach(function(item) {
+    var sub = item.interval === 'daily'
+      ? item.periodKey
+      : (item.rangeLabel || item.periodKey);
+    var actionLabel = item.status === '작성중' ? '열기' : '작성하기';
+    html +=
+      '<div class="done-card-wrap" style="margin-bottom:10px;">' +
+        '<div class="done-card" style="border-left:4px solid #e74c3c;">' +
+          '<div class="done-card-clickable" style="cursor:default;">' +
+            '<span class="status-badge" style="background:#e74c3c;">누락</span>' +
+            '<h4 style="margin:5px 0;font-size:14px;">' + item.title + '</h4>' +
+            '<div style="font-size:12px;color:#666;">' + sub + ' · ' + item.interval + ' · 상태: ' + (item.status || '미생성') + '</div>' +
+          '</div>' +
+          '<div style="text-align:right;flex-shrink:0;">' +
+            '<button class="action-btn btn-submit" onclick="openMissingItem(\'' + item.logId + '\',\'' +
+              item.title.replace(/'/g, "\\'") + '\',\'' + item.interval + '\',\'' + item.periodKey + '\',\'' +
+              (item.recordId || '') + '\',\'' + (item.status || '') + '\')">' + actionLabel + '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  });
+
+  list.innerHTML = html;
+  document.getElementById('missing-count').innerText = String(state.missingItems.length);
+}
+
+function changeMissingMonth(monthKey) {
+  if (!monthKey) return;
+  monthKey = clampMonthKey(monthKey);
+  var input = document.getElementById('missing-month-input');
+  if (input) input.value = monthKey;
+  loadMissingDashboard(monthKey, function() {
+    renderMissingList();
+  });
+}
+
+function openMissingItem(logId, title, interval, periodKey, recordId, status) {
+  var targetDate = getCalendarTargetDate(interval, periodKey);
+  if (recordId && status === '작성중') {
+    openForm(recordId, logId, title, targetDate);
+    return;
+  }
+  startNewLog(logId, title, null, targetDate);
+}
+
+function getWeekdayOptions(maskText) {
+  var set = {};
+  String(maskText || '1,2,3,4,5').split(',').forEach(function(value) { set[value] = true; });
+  return [1, 2, 3, 4, 5, 6, 7].map(function(day) {
+    var labels = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토', 7: '일' };
+    return {
+      day: day,
+      label: labels[day],
+      checked: !!set[String(day)]
+    };
+  });
+}
+
+function getCalendarDayTone(day) {
+  if (!day) return 'background:#f7f7f7;border:1px solid #eee;color:#555;';
+  if (day.source === 'override' && day.overrideType === 'workday') {
+    return 'background:#e8fff7;border:1px solid #16a085;color:#0f766e;';
+  }
+  if (day.source === 'override' && day.overrideType === 'holiday') {
+    return 'background:#fff1f1;border:1px solid #e74c3c;color:#c0392b;';
+  }
+  if (!day.isWorkday) {
+    return 'background:#f6f7fb;border:1px solid #d8deea;color:#6b7280;';
+  }
+  return 'background:white;border:1px solid #dfe6ee;color:#2c3e50;';
+}
+
+function renderCalendarManagementModal() {
+  var data = state.calendarMonthData;
+  if (!data) {
+    openModal('팩토리캘린더', '<p style="padding:20px;text-align:center;color:#888;">달력 정보를 불러오지 못했습니다.</p>', true);
+    return;
+  }
+
+  var rule = data.rule || {};
+  var weekdayOptions = getWeekdayOptions(rule.defaultWeekdayMask);
+  var weekdayHtml = weekdayOptions.map(function(option) {
+    return '<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:6px 8px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">' +
+      '<input type="checkbox" class="calendar-weekday-check" value="' + option.day + '"' + (option.checked ? ' checked' : '') + '>' +
+      '<span>' + option.label + '</span>' +
+    '</label>';
+  }).join('');
+
+  var days = data.days || [];
+  var dayHeaders = ['월', '화', '수', '목', '금', '토', '일'].map(function(label) {
+    return '<div style="font-size:11px;color:#666;text-align:center;font-weight:bold;">' + label + '</div>';
+  }).join('');
+
+  var firstDate = days.length ? new Date(days[0].date + 'T00:00:00Z') : null;
+  var firstWeekday = firstDate ? (firstDate.getUTCDay() === 0 ? 7 : firstDate.getUTCDay()) : 1;
+  var blanks = [];
+  for (var i = 1; i < firstWeekday; i++) blanks.push('<div></div>');
+  var dayCells = days.map(function(day) {
+    return '<button type="button" onclick="cycleCalendarDay(\'' + day.date + '\')" ' +
+      'style="' + getCalendarDayTone(day) + 'padding:10px 8px;border-radius:10px;min-height:72px;cursor:pointer;text-align:left;">' +
+        '<div style="font-weight:bold;font-size:13px;">' + Number(day.date.slice(-2)) + '</div>' +
+        '<div style="font-size:10px;margin-top:6px;line-height:1.4;">' +
+          (day.source === 'national_holiday' ? (day.holidayName || '공휴일') :
+            day.source === 'override' ? (day.overrideType === 'workday' ? '근무 예외' : '휴무 예외') :
+            (day.isWorkday ? '근무일' : '휴무일')) +
+        '</div>' +
+      '</button>';
+  }).join('');
+
+  var html =
+    '<div style="display:flex;flex-direction:column;gap:14px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+        '<input type="month" id="calendar-month-input" value="' + data.monthKey + '" max="' + getCurrentMonthKey() + '" onchange="changeCalendarManagementMonth(this.value)" ' +
+          'style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">' +
+        '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:12px;">' +
+            '<input type="checkbox" id="calendar-national-holidays"' + (rule.useNationalHolidays ? ' checked' : '') + '>' +
+            '<span>국가공휴일 자동 휴무</span>' +
+          '</label>' +
+          '<button type="button" onclick="syncCalendarHolidays()" style="padding:8px 10px;border-radius:8px;border:1px solid #ddd;background:white;cursor:pointer;font-size:12px;">공휴일 동기화</button>' +
+          '<button type="button" onclick="saveCalendarRuleSettings()" style="padding:8px 12px;border:none;border-radius:8px;background:#16a085;color:white;cursor:pointer;font-size:12px;font-weight:bold;">기본규칙 저장</button>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + weekdayHtml + '</div>' +
+      '<div style="font-size:11px;color:#666;">날짜를 누르면 기본값 → 휴무 예외 → 근무 예외 → 기본값 순서로 바뀝니다.</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;">' +
+        dayHeaders + blanks.join('') + dayCells +
+      '</div>' +
+    '</div>';
+
+  openModal('팩토리캘린더 관리', html, true);
+}
+
+function openCalendarManagement() {
+  if (getCurrentRole() < 2 && !state.user.isMaster) {
+    alert('검토자 이상만 팩토리캘린더를 관리할 수 있습니다.');
+    return;
+  }
+  openModal('팩토리캘린더 관리', '<p style="padding:20px;text-align:center;color:#888;">불러오는 중...</p>', true);
+  loadFactoryCalendarMonth(state.calendarMonth || getCurrentMonthKey(), function(ok, res) {
+    if (!ok && res && res.message) {
+      document.getElementById('modal-body').innerHTML = '<p style="padding:20px;text-align:center;color:#c0392b;">' + res.message + '</p>';
+      return;
+    }
+    renderCalendarManagementModal();
+  });
+}
+
+function changeCalendarManagementMonth(monthKey) {
+  if (!monthKey) return;
+  monthKey = clampMonthKey(monthKey);
+  var input = document.getElementById('calendar-month-input');
+  if (input) input.value = monthKey;
+  loadFactoryCalendarMonth(monthKey, function() {
+    renderCalendarManagementModal();
+  });
+}
+
+function saveCalendarRuleSettings() {
+  var weekdays = Array.from(document.querySelectorAll('.calendar-weekday-check:checked'))
+    .map(function(el) { return el.value; });
+  var useNationalHolidays = !!document.getElementById('calendar-national-holidays').checked;
+  if (!weekdays.length) {
+    alert('기본 근무 요일을 하나 이상 선택해주세요.');
+    return;
+  }
+
+  showLoading('캘린더 저장 중...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) {
+        hideLoading();
+        alert((res && res.message) || '저장에 실패했습니다.');
+        return;
+      }
+      refreshRecordsBackground(function() {
+        hideLoading();
+        openCalendarManagement();
+      });
+    })
+    .withFailureHandler(function(e) {
+      hideLoading();
+      alert('저장 오류: ' + (e && e.message ? e.message : '서버 오류'));
+    })
+    .updateFactoryCalendarRule(state.currentFactory, weekdays.join(','), useNationalHolidays);
+}
+
+function cycleCalendarDay(dateStr) {
+  var days = (state.calendarMonthData && state.calendarMonthData.days) || [];
+  var day = days.find(function(entry) { return entry.date === dateStr; });
+  if (!day) return;
+
+  var nextType = 'holiday';
+  if (day.source === 'override' && day.overrideType === 'holiday') nextType = 'workday';
+  else if (day.source === 'override' && day.overrideType === 'workday') nextType = 'default';
+  else if (!day.isWorkday) nextType = 'workday';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) {
+        alert((res && res.message) || '저장에 실패했습니다.');
+        return;
+      }
+      refreshRecordsBackground(function() {
+        openCalendarManagement();
+      });
+    })
+    .withFailureHandler(function(e) {
+      alert('저장 오류: ' + (e && e.message ? e.message : '서버 오류'));
+    })
+    .updateFactoryCalendarDay(state.currentFactory, dateStr, nextType, '');
+}
+
+function syncCalendarHolidays() {
+  var monthKey = state.calendarMonth || getCurrentMonthKey();
+  var year = String(monthKey).slice(0, 4);
+  showLoading('공휴일 동기화 중...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) {
+        hideLoading();
+        alert((res && res.message) || '동기화에 실패했습니다.');
+        return;
+      }
+      refreshRecordsBackground(function() {
+        hideLoading();
+        openCalendarManagement();
+      });
+    })
+    .withFailureHandler(function(e) {
+      hideLoading();
+      alert('동기화 오류: ' + (e && e.message ? e.message : '서버 오류'));
+    })
+    .syncNationalHolidays(year, state.currentFactory);
+}
+</script>

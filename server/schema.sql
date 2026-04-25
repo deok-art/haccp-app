@@ -25,10 +25,13 @@ CREATE TABLE IF NOT EXISTS records (
   date          TEXT NOT NULL,               -- yyyy-MM-dd
   writer_id     TEXT NOT NULL DEFAULT '',
   writer_name   TEXT NOT NULL DEFAULT '',
+  writer_date   TEXT NOT NULL DEFAULT '',
   reviewer_id   TEXT NOT NULL DEFAULT '',
   reviewer_name TEXT NOT NULL DEFAULT '',
+  reviewer_date TEXT NOT NULL DEFAULT '',
   approver_id   TEXT NOT NULL DEFAULT '',
   approver_name TEXT NOT NULL DEFAULT '',
+  approver_date TEXT NOT NULL DEFAULT '',
   status        TEXT NOT NULL DEFAULT '미작성',
   defect_info   TEXT NOT NULL DEFAULT '',
   data_json     TEXT NOT NULL DEFAULT '{}',  -- 양식 내용 JSON
@@ -58,6 +61,41 @@ CREATE TABLE IF NOT EXISTS log_templates (
 CREATE TABLE IF NOT EXISTS factories (
   factory_id TEXT PRIMARY KEY,
   name       TEXT NOT NULL
+);
+
+-- 공장 캘린더 기본 규칙 (기본: 월~금 근무 + 국가공휴일 반영)
+CREATE TABLE IF NOT EXISTS factory_calendar_rules (
+  factory_id             TEXT PRIMARY KEY,
+  default_weekday_mask   TEXT NOT NULL DEFAULT '1,2,3,4,5', -- 1=월 ... 7=일
+  use_national_holidays  INTEGER NOT NULL DEFAULT 1,
+  updated_by             TEXT NOT NULL DEFAULT '',
+  updated_at             TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  FOREIGN KEY (factory_id) REFERENCES factories(factory_id) ON DELETE CASCADE
+);
+
+-- 날짜별 예외 지정 (평일 휴무 / 휴일 근무)
+CREATE TABLE IF NOT EXISTS factory_calendar_overrides (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  factory_id    TEXT NOT NULL,
+  date          TEXT NOT NULL,
+  override_type TEXT NOT NULL CHECK (override_type IN ('workday', 'holiday')),
+  reason        TEXT NOT NULL DEFAULT '',
+  updated_by    TEXT NOT NULL DEFAULT '',
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE(factory_id, date),
+  FOREIGN KEY (factory_id) REFERENCES factories(factory_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_factory_calendar_overrides_factory_date
+  ON factory_calendar_overrides(factory_id, date);
+
+-- 국가공휴일 캐시
+CREATE TABLE IF NOT EXISTS national_holidays (
+  holiday_date  TEXT PRIMARY KEY,
+  holiday_name  TEXT NOT NULL DEFAULT '',
+  is_holiday    INTEGER NOT NULL DEFAULT 1,
+  source_year   INTEGER NOT NULL DEFAULT 0,
+  fetched_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 -- ── 앱 설정 ───────────────────────────────────────────

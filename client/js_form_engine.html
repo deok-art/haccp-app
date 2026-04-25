@@ -9,16 +9,70 @@
 //    { group: '그룹명', items: [{ key, sub, desc }, ...] }
 // ════════════════════════════════════════════════════════
 
+var _engineConfig = null;  // initFormEngine 호출 시 저장
+
+function getTemplateDefaultLocation(logId) {
+  var map = {
+    si0102vs: '\uC704\uC0DD\uC804\uC2E4',
+    si0102wc: '\uD654\uC7A5\uC2E4',
+    si0102dr: '\uD0C8\uC758\uC2E4'
+  };
+  return map[logId] || '';
+}
+
+function getNumericResultForValue(val, min, max) {
+  var num = val === '' || val === null || val === undefined ? null : parseFloat(val);
+  if (num === null || isNaN(num)) return 'ok';
+  var outOfRange = false;
+  if (min !== null && min !== undefined && num < min) outOfRange = true;
+  if (max !== null && max !== undefined && num > max) outOfRange = true;
+  return outOfRange ? 'ng' : 'ok';
+}
+
+function updateCounterQuickButtons(fid, key, value) {
+  var buttons = document.querySelectorAll('[data-counter-key="' + fid + '-' + key + '"]');
+  Array.prototype.forEach.call(buttons, function(btn) {
+    var selected = String(btn.getAttribute('data-counter-value')) === String(value);
+    btn.style.background = selected ? '#1f7a45' : '#f5f7fa';
+    btn.style.color = selected ? '#fff' : '#555';
+    btn.style.borderColor = selected ? '#1f7a45' : '#d9dee8';
+  });
+}
+
 // ── DB flat items → 폼 엔진 config 변환 ───────────────
 function buildConfigFromDbItems(template) {
   var groups = [];
   var cur = null;
+  var itemCounter = 0;
   (template.items || []).forEach(function(item) {
     if (item.type === 'group_header') {
       cur = { group: item.label, items: [] };
       groups.push(cur);
     } else if (item.type === 'check' && cur) {
-      cur.items.push({ key: item.key, sub: item.key.split('_').pop(), desc: item.label });
+      cur.items.push({ key: item.key, sub: String(++itemCounter), desc: item.label });
+    } else if (item.type === 'temp' && cur) {
+      cur.items.push({
+        key: item.key, sub: String(++itemCounter), desc: item.label,
+        inputType: 'temp',
+        unit: item.unit || '°C',
+        min:  item.min  !== undefined ? item.min  : null,
+        max:  item.max  !== undefined ? item.max  : null
+      });
+    } else if (item.type === 'numeric' && cur) {
+      var crit = item.criteria || {};
+      cur.items.push({
+        key: item.key, sub: String(++itemCounter), desc: item.label,
+        inputType: 'temp',
+        unit: item.unit || 'Lux',
+        min:  crit.min !== undefined ? crit.min : null,
+        max:  crit.max !== undefined ? crit.max : null,
+        inputMode: item.input_mode || item.inputMode || '',
+        quickValues: item.quick_values || item.quickValues || [],
+        defaultValue: item.default_value !== undefined ? item.default_value : item.defaultValue,
+        pestType: item.pest_type || ''
+      });
+    } else if (item.type === 'select' && cur) {
+      cur.items.push({ key: item.key, sub: String(++itemCounter), desc: item.label });
     }
   });
   return {
@@ -27,23 +81,34 @@ function buildConfigFromDbItems(template) {
     docNo:    template.docNo,
     revision: template.revision,
     interval: template.interval,
+    location: (template.metaInfo && template.metaInfo.location) || getTemplateDefaultLocation(template.logId),
+    metaInfo: template.metaInfo || {},
     groups:   groups,
   };
 }
 
 // ── 폼 초기화 (formState + 렌더링) ────────────────────
 function initFormEngine(config, containerId, savedJson) {
-  var saved = {};
-  if (savedJson) { try { saved = JSON.parse(savedJson); } catch(e) {} }
+  _engineConfig = config;
+  var saved = typeof parseSavedFormData === 'function' ? parseSavedFormData(savedJson) : {};
 
   config.groups.forEach(function(grp) {
     grp.items.forEach(function(item) {
       var s = (saved.items || {})[item.key] || {};
-      formState.checkData[item.key]    = s.result      || 'ok';
+      var resolvedTempValue = item.inputType === 'temp'
+        ? (s.tempValue !== undefined ? s.tempValue : (item.defaultValue !== undefined ? item.defaultValue : ''))
+        : '';
+      var resolvedResult = s.result || (item.inputType === 'temp'
+        ? getNumericResultForValue(resolvedTempValue, item.min, item.max)
+        : 'ok');
+      formState.checkData[item.key]    = resolvedResult;
       formState.defectTexts[item.key]  = s.defectText  || '';
       formState.actionTexts[item.key]  = s.actionText  || '';
       formState.defectPhotos[item.key] = s.defectPhoto || '';
       formState.actionPhotos[item.key] = s.actionPhoto || '';
+      if (item.inputType === 'temp') {
+        formState.tempValues[item.key] = resolvedTempValue;
+      }
     });
   });
 
@@ -83,6 +148,7 @@ function renderFormGroups(config, containerId) {
 
 // ── 항목 엘리먼트 생성 ─────────────────────────────────
 function buildFormItemEl(item, fid) {
+  if (item.inputType === 'temp') return buildTempItemEl(item, fid);
   var isNg        = formState.checkData[item.key] === 'ng';
   var defectText  = formState.defectTexts[item.key]  || '';
   var actionText  = formState.actionTexts[item.key]  || '';
@@ -168,6 +234,473 @@ function buildFormItemEl(item, fid) {
   return el;
 }
 
+// ── 온도 항목 엘리먼트 ────────────────────────────────
+function buildTempItemEl(item, fid) {
+  var key     = item.key;
+  var curVal  = formState.tempValues[key] !== undefined ? formState.tempValues[key] : '';
+  var isNg    = formState.checkData[key] === 'ng';
+  var isCounter = item.inputMode === 'counter';
+  var rangeLabel = '';
+  if (item.min !== null && item.max !== null) {
+    rangeLabel = '(' + item.min + '~' + item.max + item.unit + ')';
+  } else if (item.max !== null) {
+    rangeLabel = '(' + item.max + item.unit + ' 이하)';
+  } else if (item.min !== null) {
+    rangeLabel = '(' + item.min + item.unit + ' 이상)';
+  }
+
+  var el = document.createElement('div');
+  el.id  = fid + '-item-' + key;
+  el.style.cssText = 'margin-bottom:10px;padding:10px;border:1px solid ' +
+    (isNg ? '#e74c3c' : '#eee') + ';border-radius:8px;transition:border-color 0.2s;';
+
+  el.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px;">' +
+      '<div style="flex:1;min-width:0;">' +
+        '<span style="font-size:13px;font-weight:600;">' + item.sub + '</span>' +
+        '<span style="font-size:11px;color:#888;margin-left:6px;">' + item.desc + '</span>' +
+        '<span style="font-size:11px;color:#aaa;margin-left:4px;">' + rangeLabel + '</span>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">' +
+        '<input type="number" id="' + fid + '-temp-' + key + '"' +
+          ' value="' + curVal + '" step="' + (isCounter ? '1' : '0.1') + '"' +
+          ' style="width:' + (isCounter ? '76px' : '70px') + ';padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:14px;text-align:center;"' +
+          ' oninput="onTempInput(\'' + key + '\',this.value,\'' + fid + '\',' +
+            item.min + ',' + item.max + ')">' +
+        '<span style="font-size:13px;color:#555;">' + item.unit + '</span>' +
+        '<span id="' + fid + '-temp-badge-' + key + '" style="font-size:13px;font-weight:700;color:' +
+          (isNg ? '#e74c3c' : (curVal !== '' ? '#27ae60' : '#bbb')) + ';">' +
+          (curVal !== '' ? (isNg ? '× 부적합' : '○ 적합') : '-') +
+        '</span>' +
+      '</div>' +
+    '</div>' +
+    (isCounter
+      ? '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;padding-left:24px;">' +
+          '<span style="font-size:11px;color:#666;font-weight:600;">빠른 입력</span>' +
+          '<button type="button" onclick="adjustCounterValue(\'' + key + '\',-1,\'' + fid + '\',' + item.min + ',' + item.max + ')" style="padding:5px 9px;border:1px solid #d9dee8;border-radius:999px;background:#fff;font-size:12px;color:#444;cursor:pointer;">-1</button>' +
+          '<button type="button" onclick="adjustCounterValue(\'' + key + '\',1,\'' + fid + '\',' + item.min + ',' + item.max + ')" style="padding:5px 9px;border:1px solid #d9dee8;border-radius:999px;background:#fff;font-size:12px;color:#444;cursor:pointer;">+1</button>' +
+          (item.quickValues || []).map(function(value) {
+            return '<button type="button" data-counter-key="' + fid + '-' + key + '" data-counter-value="' + value + '"' +
+              ' onclick="setCounterValue(\'' + key + '\',\'' + value + '\',\'' + fid + '\',' + item.min + ',' + item.max + ')"' +
+              ' style="padding:5px 10px;border:1px solid #d9dee8;border-radius:999px;background:#f5f7fa;font-size:12px;color:#555;cursor:pointer;">' + value + '</button>';
+          }).join('') +
+        '</div>'
+      : '') +
+    '<div id="' + fid + '-ng-area-' + key + '"' + (!isNg ? ' class="hidden"' : '') +
+      ' style="background:#fff8f8;border:1px solid #fdd;border-radius:8px;padding:10px;margin-top:8px;">' +
+      '<div style="margin-bottom:10px;">' +
+        '<label style="font-size:11px;font-weight:700;color:#e74c3c;display:block;margin-bottom:4px;">🚨 부적합 내용 <span style="color:#e74c3c;">*</span></label>' +
+        '<textarea id="' + fid + '-defect-text-' + key + '"' +
+          ' placeholder="측정값 및 부적합 내용을 기록해주세요."' +
+          ' style="width:100%;padding:8px;border:1px solid #fbb;border-radius:6px;font-size:13px;resize:vertical;min-height:50px;box-sizing:border-box;font-family:inherit;">' +
+          (formState.defectTexts[key] || '') + '</textarea>' +
+      '</div>' +
+      '<div style="margin-bottom:12px;">' +
+        '<label style="font-size:11px;font-weight:700;color:#e74c3c;display:block;margin-bottom:6px;">📷 부적합 사진 <span style="font-weight:400;color:#999;">(선택)</span></label>' +
+        '<div id="defect-photo-preview-' + key + '" style="margin-bottom:6px;">' +
+          (formState.defectPhotos[key] ? '<img src="' + formState.defectPhotos[key] + '" style="max-width:100%;max-height:160px;border-radius:6px;display:block;">' : '') +
+        '</div>' +
+        '<div class="photo-row">' +
+          '<button type="button" class="photo-add-btn" onclick="triggerPhoto(\'defect\',\'' + key + '\',\'camera\')"><span>📷</span>카메라</button>' +
+          '<button type="button" class="photo-add-btn gallery-btn" onclick="triggerPhoto(\'defect\',\'' + key + '\',\'gallery\')"><span>🖼</span>갤러리</button>' +
+        '</div>' +
+        '<input type="file" accept="image/*" capture="environment" id="photo-input-defect-camera-' + key + '" style="display:none;"' +
+          ' onchange="handlePhoto(\'defect\',\'' + key + '\',this,\'' + item.sub + '_부적합\')">' +
+        '<input type="file" accept="image/*" id="photo-input-defect-gallery-' + key + '" style="display:none;"' +
+          ' onchange="handlePhoto(\'defect\',\'' + key + '\',this,\'' + item.sub + '_부적합\')">' +
+      '</div>' +
+      '<div style="margin-bottom:10px;">' +
+        '<label style="font-size:11px;font-weight:700;color:#2980b9;display:block;margin:8px 0 4px;">🔧 개선조치 내용 <span style="color:#e74c3c;">*</span></label>' +
+        '<textarea id="' + fid + '-action-text-' + key + '"' +
+          ' placeholder="취한 조치 내용을 기록해주세요."' +
+          ' style="width:100%;padding:8px;border:1px solid #aed6f1;border-radius:6px;font-size:13px;resize:vertical;min-height:50px;box-sizing:border-box;font-family:inherit;">' +
+          (formState.actionTexts[key] || '') + '</textarea>' +
+      '</div>' +
+      '<div>' +
+        '<label style="font-size:11px;font-weight:700;color:#2980b9;display:block;margin-bottom:6px;">📷 개선조치 사진 <span style="font-weight:400;color:#999;">(선택)</span></label>' +
+        '<div id="action-photo-preview-' + key + '" style="margin-bottom:6px;">' +
+          (formState.actionPhotos[key] ? '<img src="' + formState.actionPhotos[key] + '" style="max-width:100%;max-height:160px;border-radius:6px;display:block;">' : '') +
+        '</div>' +
+        '<div class="photo-row">' +
+          '<button type="button" class="photo-add-btn" onclick="triggerPhoto(\'action\',\'' + key + '\',\'camera\')"><span>📷</span>카메라</button>' +
+          '<button type="button" class="photo-add-btn gallery-btn" onclick="triggerPhoto(\'action\',\'' + key + '\',\'gallery\')"><span>🖼</span>갤러리</button>' +
+        '</div>' +
+        '<input type="file" accept="image/*" capture="environment" id="photo-input-action-camera-' + key + '" style="display:none;"' +
+          ' onchange="handlePhoto(\'action\',\'' + key + '\',this,\'' + item.sub + '_조치\')">' +
+        '<input type="file" accept="image/*" id="photo-input-action-gallery-' + key + '" style="display:none;"' +
+          ' onchange="handlePhoto(\'action\',\'' + key + '\',this,\'' + item.sub + '_조치\')">' +
+      '</div>' +
+    '</div>';
+
+  if (isCounter) {
+    setTimeout(function() { updateCounterQuickButtons(fid, key, curVal); }, 0);
+  }
+
+  return el;
+}
+
+// ── 온도 입력 핸들러 ─────────────────────────────────
+function _isPestCounterItem(key) {
+  if (!_engineConfig || _engineConfig.formId !== 'si0203') return false;
+  return _engineConfig.groups.some(function(g) {
+    return g.items.some(function(i) { return i.key === key && i.pestType; });
+  });
+}
+
+function onTempInput(key, val, fid, min, max) {
+  formState.tempValues[key] = val;
+
+  // si0203 해충 카운터 항목은 개별 배지 숨기고 집계 패널만 업데이트
+  if (_isPestCounterItem(key)) {
+    var badge0 = document.getElementById(fid + '-temp-badge-' + key);
+    if (badge0) badge0.style.display = 'none';
+    selectFormResult(key, 'ok', fid, true);
+    updateCounterQuickButtons(fid, key, val);
+    updatePestActionPanel(_engineConfig);
+    return;
+  }
+
+  var result = getNumericResultForValue(val, min, max);
+  var badge = document.getElementById(fid + '-temp-badge-' + key);
+  if (val === '' || val === null || val === undefined || isNaN(parseFloat(val))) {
+    if (badge) { badge.textContent = '-'; badge.style.color = '#bbb'; }
+    selectFormResult(key, 'ok', fid, true);
+    updateCounterQuickButtons(fid, key, val);
+    return;
+  }
+
+  if (badge) {
+    badge.textContent  = result === 'ng' ? '× 부적합' : '○ 적합';
+    badge.style.color  = result === 'ng' ? '#e74c3c'  : '#27ae60';
+  }
+  selectFormResult(key, result, fid, true);
+  updateCounterQuickButtons(fid, key, val);
+}
+
+function setCounterValue(key, val, fid, min, max) {
+  var input = document.getElementById(fid + '-temp-' + key);
+  if (!input) return;
+  input.value = val;
+  onTempInput(key, val, fid, min, max);
+}
+
+function adjustCounterValue(key, delta, fid, min, max) {
+  var input = document.getElementById(fid + '-temp-' + key);
+  if (!input) return;
+  var current = parseFloat(input.value);
+  if (!isFinite(current)) current = 0;
+  var next = Math.max(0, current + delta);
+  if (Math.round(next) === next) next = String(next);
+  input.value = next;
+  onTempInput(key, String(next), fid, min, max);
+}
+
+// ── 방충방서 조치사항 패널 ─────────────────────────────
+function getPestSeason() {
+  var month = new Date().getMonth();
+  return (month >= 3 && month <= 8) ? 'summer' : 'winter';
+}
+
+function calcPestTotals(config) {
+  var flying = 0, crawling = 0, rodent = 0;
+  config.groups.forEach(function(grp) {
+    grp.items.forEach(function(item) {
+      if (item.inputType !== 'temp' || !item.pestType) return;
+      var val = parseFloat(formState.tempValues[item.key]);
+      if (!isFinite(val)) val = 0;
+      if (item.pestType === 'flying') flying += val;
+      else if (item.pestType === 'crawling') crawling += val;
+      else if (item.pestType === 'rodent') rodent += val;
+    });
+  });
+  return { flying: flying, crawling: crawling, rodent: rodent };
+}
+
+function matchPestLevel(totals, criteria, season) {
+  var seasonData = criteria[season];
+  if (!seasonData || !seasonData.levels) return null;
+  var levels = seasonData.levels;
+  // 설치류 우선: 1마리 이상이면 무조건 최고 단계
+  if (totals.rodent >= 1) return levels[levels.length - 1];
+  var matched = null;
+  levels.forEach(function(level) {
+    var c = level.conditions;
+    var flyMatch = Array.isArray(c.flying)
+      ? totals.flying >= c.flying[0] && totals.flying <= c.flying[1]
+      : totals.flying >= c.flying;
+    var crawlMatch = Array.isArray(c.crawling)
+      ? totals.crawling >= c.crawling[0] && totals.crawling <= c.crawling[1]
+      : totals.crawling >= c.crawling;
+    if (flyMatch || crawlMatch) matched = level;
+  });
+  return matched;
+}
+
+function buildCumulativeActions(criteria, season, currentLevel) {
+  if (!currentLevel) return [];
+  var seasonData = criteria[season];
+  if (!seasonData || !seasonData.levels) return (currentLevel.actions || []);
+  var allActions = [];
+  for (var i = 0; i < seasonData.levels.length; i++) {
+    var lv = seasonData.levels[i];
+    var ownActions = (lv.actions || []).filter(function(a) {
+      return !/단계\s*포함/.test(a);
+    });
+    allActions = allActions.concat(ownActions);
+    if (lv.level === currentLevel.level) break;
+  }
+  return allActions;
+}
+
+var _lastPestLevel = null;  // 단계 변화 토스트용
+
+function updatePestActionPanel(config) {
+  var panel = document.getElementById('pest-action-panel');
+  if (!panel) return;
+  var metaInfo = config.metaInfo || {};
+  var criteria = metaInfo.pestCriteria;
+  if (!criteria) { panel.classList.add('hidden'); return; }
+
+  var season = getPestSeason();
+  var totals = calcPestTotals(config);
+  var level = matchPestLevel(totals, criteria, season);
+  var seasonLabel = season === 'summer' ? '하절기(4~9월)' : '동절기(10~3월)';
+  var currentLevelKey = level ? level.level : '정상';
+
+  // 단계 변화 시 토스트 알림
+  if (_lastPestLevel !== null && _lastPestLevel !== currentLevelKey) {
+    if (currentLevelKey === '정상') {
+      showToast('해충 발생이 정상 범위로 돌아왔습니다.', 'success');
+    } else {
+      var emoji = currentLevelKey === '3단계' ? '🚨' : '⚠️';
+      showToast(emoji + ' 해충 ' + currentLevelKey + ' 발생! 개선조치를 입력해주세요.', 'error');
+    }
+  }
+  _lastPestLevel = currentLevelKey;
+
+  var levelColor = '#27ae60', levelBg = '#f0fff4', levelBorder = '#27ae60', levelText = '정상 범위';
+  if (level) {
+    if (level.level === '3단계') { levelColor = '#e74c3c'; levelBg = '#fff0f0'; levelBorder = '#e74c3c'; }
+    else if (level.level === '2단계') { levelColor = '#e67e22'; levelBg = '#fff8f0'; levelBorder = '#e67e22'; }
+    else { levelColor = '#f39c12'; levelBg = '#fffdf0'; levelBorder = '#f39c12'; }
+    levelText = level.level;
+  }
+
+  // 저장된 개선조치 요약 표시
+  var savedActionHtml = '';
+  if (formState.pestAction && formState.pestAction.memo) {
+    savedActionHtml =
+      '<div style="margin-top:6px;padding:6px 8px;background:rgba(0,0,0,0.04);border-radius:6px;font-size:11px;color:#555;">' +
+        '<strong>입력된 조치:</strong> ' + formState.pestAction.memo +
+      '</div>';
+  }
+
+  var actionsHtml = '';
+  if (level) {
+    var cumulativeActions = buildCumulativeActions(criteria, season, level);
+    actionsHtml =
+      '<div style="margin-top:8px;">' +
+        '<strong style="font-size:11px;color:' + levelColor + ';">필요 조치사항:</strong>' +
+        '<ul style="margin:4px 0 0 16px;padding:0;font-size:11px;color:#333;">' +
+          cumulativeActions.map(function(a) { return '<li>' + a + '</li>'; }).join('') +
+        '</ul>' +
+      '</div>' +
+      savedActionHtml +
+      '<div style="margin-top:8px;text-align:right;">' +
+        '<button onclick="openPestActionModal(_engineConfig)" ' +
+          'style="background:' + levelColor + ';color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">' +
+          (formState.pestAction && formState.pestAction.memo ? '✏️ 조치내용 수정' : '📝 개선조치 입력') +
+        '</button>' +
+      '</div>';
+  }
+
+  panel.classList.remove('hidden');
+  panel.innerHTML =
+    '<div style="border:2px solid ' + levelBorder + ';border-radius:10px;background:' + levelBg + ';padding:12px 14px;margin-bottom:10px;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">' +
+        '<div style="font-size:12px;font-weight:700;color:' + levelColor + ';">현재 단계: ' + levelText +
+          ' <span style="font-size:10px;color:#888;font-weight:400;">(' + seasonLabel + ')</span></div>' +
+        '<div style="font-size:11px;color:#555;">' +
+          '비래: <strong>' + totals.flying + '</strong>마리 | ' +
+          '보행: <strong>' + totals.crawling + '</strong>마리 | ' +
+          '설치류: <strong>' + totals.rodent + '</strong>마리' +
+        '</div>' +
+      '</div>' +
+      actionsHtml +
+    '</div>';
+}
+
+function initPestActionPanel(config) {
+  _lastPestLevel = null;
+  updatePestActionPanel(config);
+}
+
+// ── 방충방서 개선조치 모달 ────────────────────────────────
+function openPestActionModal(config) {
+  var metaInfo = config.metaInfo || {};
+  var criteria = metaInfo.pestCriteria;
+  var season   = getPestSeason();
+  var totals   = calcPestTotals(config);
+  var level    = criteria ? matchPestLevel(totals, criteria, season) : null;
+
+  var levelLabel = level ? level.level : '정상 범위';
+  var levelColor = level
+    ? (level.level === '3단계' ? '#e74c3c' : level.level === '2단계' ? '#e67e22' : '#f39c12')
+    : '#27ae60';
+
+  var actionsCheckHtml = '';
+  if (level && criteria) {
+    var modalActions = buildCumulativeActions(criteria, season, level);
+    if (modalActions.length) {
+      actionsCheckHtml =
+        '<div style="margin-bottom:10px;">' +
+          '<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px;">필요 조치사항 체크:</div>' +
+          modalActions.map(function(a, i) {
+            return (
+              '<label style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;font-size:12px;cursor:pointer;">' +
+                '<input type="checkbox" id="pest-action-check-' + i + '" style="margin-top:2px;flex-shrink:0;" ' +
+                  'onchange="updatePestActionMemoFromChecks()" />' +
+                '<span>' + a + '</span>' +
+              '</label>'
+            );
+          }).join('') +
+        '</div>';
+    }
+  }
+
+  var existingMemo = (formState.pestAction && formState.pestAction.memo) || '';
+
+  var modal = document.createElement('div');
+  modal.id = 'pest-action-modal-overlay';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center;';
+  modal.innerHTML =
+    '<div style="background:#fff;width:100%;max-width:600px;border-radius:16px 16px 0 0;padding:20px 16px 32px;max-height:80vh;overflow-y:auto;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
+        '<div>' +
+          '<div style="font-size:15px;font-weight:700;">개선조치 입력</div>' +
+          '<div style="font-size:11px;color:' + levelColor + ';font-weight:600;margin-top:2px;">현재 단계: ' + levelLabel + '</div>' +
+        '</div>' +
+        '<button onclick="closePestActionModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#888;">✕</button>' +
+      '</div>' +
+      actionsCheckHtml +
+      '<div style="margin-bottom:10px;">' +
+        '<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:4px;">실제 조치 내용 <span style="color:#e74c3c;">*</span></div>' +
+        '<textarea id="pest-action-memo-input" rows="4" ' +
+          'style="width:100%;padding:10px;border:1.5px solid #d0d8e4;border-radius:8px;font-size:13px;resize:vertical;box-sizing:border-box;font-family:inherit;" ' +
+          'placeholder="실제로 취한 조치 내용을 상세히 기록해주세요.">' + existingMemo + '</textarea>' +
+      '</div>' +
+      '<button onclick="savePestActionModal(_engineConfig)" ' +
+        'style="width:100%;background:' + levelColor + ';color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;">저장</button>' +
+    '</div>';
+  document.body.appendChild(modal);
+}
+
+function updatePestActionMemoFromChecks() {
+  var textarea = document.getElementById('pest-action-memo-input');
+  if (!textarea) return;
+  var checked = [];
+  document.querySelectorAll('[id^="pest-action-check-"]').forEach(function(cb) {
+    if (cb.checked) {
+      var label = cb.parentElement.querySelector('span');
+      if (label) checked.push(label.textContent.trim());
+    }
+  });
+  if (checked.length && !textarea.value.trim()) {
+    textarea.value = checked.join(', ') + ' 완료';
+  }
+}
+
+function savePestActionModal(config) {
+  var textarea = document.getElementById('pest-action-memo-input');
+  var memo = textarea ? textarea.value.trim() : '';
+  if (!memo) {
+    showToast('조치 내용을 입력해주세요.', 'error');
+    if (textarea) textarea.focus();
+    return;
+  }
+  var totals = calcPestTotals(config);
+  var season = getPestSeason();
+  var criteria = (config.metaInfo || {}).pestCriteria;
+  var level = criteria ? matchPestLevel(totals, criteria, season) : null;
+  formState.pestAction = {
+    level: level ? level.level : '정상',
+    memo: memo,
+    savedAt: new Date().toISOString()
+  };
+  closePestActionModal();
+  updatePestActionPanel(config);
+  showToast('개선조치 내용이 저장되었습니다.', 'success');
+}
+
+function closePestActionModal() {
+  var overlay = document.getElementById('pest-action-modal-overlay');
+  if (overlay) overlay.parentNode.removeChild(overlay);
+}
+
+// ── 방충방서 기준 모달 ───────────────────────────────────
+function openPestCriteriaModal(config) {
+  var metaInfo = config.metaInfo || {};
+  var criteria = metaInfo.pestCriteria;
+  if (!criteria) { showToast('기준 데이터를 불러올 수 없습니다.', 'error'); return; }
+
+  function buildCriteriaTable(seasonData, seasonTitle) {
+    if (!seasonData || !seasonData.levels) return '';
+    var rows = seasonData.levels.map(function(level) {
+      var c = level.conditions;
+      var flyRange = Array.isArray(c.flying)
+        ? c.flying[0] + '~' + c.flying[1] + '마리'
+        : c.flying + '마리 이상';
+      var crawlRange = Array.isArray(c.crawling)
+        ? c.crawling[0] + '~' + c.crawling[1] + '마리'
+        : c.crawling + '마리 이상';
+      return (
+        '<tr>' +
+          '<td style="padding:6px 8px;font-weight:700;text-align:center;">' + level.level + '</td>' +
+          '<td style="padding:6px 8px;text-align:center;">' + flyRange + '</td>' +
+          '<td style="padding:6px 8px;text-align:center;">' + crawlRange + '</td>' +
+          '<td style="padding:6px 8px;text-align:center;">' + c.rodent + '마리 이상</td>' +
+          '<td style="padding:6px 8px;font-size:11px;">' + level.actions.join('<br>') + '</td>' +
+        '</tr>'
+      );
+    }).join('');
+    return (
+      '<div style="margin-bottom:16px;">' +
+        '<div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#333;">' + seasonTitle +
+          ' <span style="font-size:11px;font-weight:400;color:#888;">(' + (seasonData.period || '') + ')</span></div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:12px;border:1px solid #e0e0e0;">' +
+          '<thead><tr style="background:#f5f7fa;font-weight:700;">' +
+            '<th style="padding:6px 8px;border:1px solid #e0e0e0;">단계</th>' +
+            '<th style="padding:6px 8px;border:1px solid #e0e0e0;">비래해충(P5)</th>' +
+            '<th style="padding:6px 8px;border:1px solid #e0e0e0;">보행해충(B1)</th>' +
+            '<th style="padding:6px 8px;border:1px solid #e0e0e0;">설치류(S3/S2)</th>' +
+            '<th style="padding:6px 8px;border:1px solid #e0e0e0;">조치사항</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+      '</div>'
+    );
+  }
+
+  var html =
+    buildCriteriaTable(criteria.winter, '동절기') +
+    buildCriteriaTable(criteria.summer, '하절기');
+
+  var overlay = document.createElement('div');
+  overlay.id = 'pest-criteria-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding-top:60px;';
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:14px;width:min(96vw,580px);max-height:80vh;overflow-y:auto;padding:20px 18px;position:relative;">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">' +
+        '<strong style="font-size:14px;color:#333;">방충방서 관리 기준</strong>' +
+        '<button onclick="document.getElementById(\'pest-criteria-overlay\').remove()" ' +
+          'style="background:none;border:none;font-size:22px;cursor:pointer;color:#aaa;line-height:1;">×</button>' +
+      '</div>' +
+      html +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+}
+
 // ── 그룹 접기/펼치기 ───────────────────────────────────
 function toggleFormGroup(header) {
   var body  = header.nextElementSibling;
@@ -178,10 +711,12 @@ function toggleFormGroup(header) {
 }
 
 // ── 적합/부적합 선택 ───────────────────────────────────
-function selectFormResult(key, result, fid) {
+function selectFormResult(key, result, fid, skipFocus) {
   formState.checkData[key] = result;
-  document.getElementById(fid + '-ok-' + key).classList.toggle('selected', result === 'ok');
-  document.getElementById(fid + '-ng-' + key).classList.toggle('selected', result === 'ng');
+  var okBtn = document.getElementById(fid + '-ok-' + key);
+  var ngBtn = document.getElementById(fid + '-ng-' + key);
+  if (okBtn) okBtn.classList.toggle('selected', result === 'ok');
+  if (ngBtn) ngBtn.classList.toggle('selected', result === 'ng');
 
   var itemEl = document.getElementById(fid + '-item-'    + key);
   var ngArea = document.getElementById(fid + '-ng-area-' + key);
@@ -191,7 +726,7 @@ function selectFormResult(key, result, fid) {
     ngArea.classList.remove('hidden');
     itemEl.style.borderColor = '#e74c3c';
     var dtEl = document.getElementById(fid + '-defect-text-' + key);
-    if (dtEl) dtEl.focus();
+    if (dtEl && !skipFocus) dtEl.focus();
   } else {
     ngArea.classList.add('hidden');
     itemEl.style.borderColor = '#eee';
@@ -201,33 +736,50 @@ function selectFormResult(key, result, fid) {
 // ── 전체 적합 ──────────────────────────────────────────
 function setAllFormOk(config) {
   config.groups.forEach(function(grp) {
-    grp.items.forEach(function(item) { selectFormResult(item.key, 'ok', config.formId); });
+    grp.items.forEach(function(item) {
+      if (item.inputType !== 'temp') selectFormResult(item.key, 'ok', config.formId);
+    });
   });
   showToast('전체 항목을 적합으로 설정했습니다.', 'success');
 }
 
 // ── 데이터 수집 ────────────────────────────────────────
-function collectFormData(config) {
+function collectEngineFormData(config) {
   var fid   = config.formId;
   var items = {};
   config.groups.forEach(function(grp) {
     grp.items.forEach(function(item) {
       var dtEl = document.getElementById(fid + '-defect-text-' + item.key);
       var atEl = document.getElementById(fid + '-action-text-' + item.key);
-      items[item.key] = {
+      var entry = {
         result:      formState.checkData[item.key] || 'ok',
         defectText:  dtEl ? dtEl.value : '',
         actionText:  atEl ? atEl.value : '',
         defectPhoto: formState.defectPhotos[item.key] || '',
         actionPhoto: formState.actionPhotos[item.key] || ''
       };
+      if (item.inputType === 'temp') {
+        var tempEl = document.getElementById(fid + '-temp-' + item.key);
+        entry.tempValue = tempEl ? tempEl.value : (
+          formState.tempValues[item.key] !== undefined ? formState.tempValues[item.key] : ''
+        );
+        // si0203 해충 카운터는 상한 없으므로 'ok' 유지
+        entry.result = item.pestType
+          ? 'ok'
+          : getNumericResultForValue(entry.tempValue, item.min, item.max);
+      }
+      items[item.key] = entry;
     });
   });
-  return { items: items };
+  var result = { items: items };
+  if (config.formId === 'si0203' && formState.pestAction) {
+    result.pestAction = formState.pestAction;
+  }
+  return result;
 }
 
 // ── 검증 ───────────────────────────────────────────────
-function validateFormData(data, config) {
+function validateEngineFormData(data, config) {
   var fid      = config.formId;
   var allItems = [];
   config.groups.forEach(function(grp) { grp.items.forEach(function(i) { allItems.push(i); }); });
@@ -235,6 +787,20 @@ function validateFormData(data, config) {
   for (var i = 0; i < allItems.length; i++) {
     var item = allItems[i];
     var d    = data.items[item.key] || {};
+    if (item.inputType === 'temp') {
+      if (d.tempValue === undefined || d.tempValue === null || String(d.tempValue).trim() === '') {
+        showToast('[' + item.sub + '] 측정값을 입력해주세요!', 'error');
+        var tempEl = document.getElementById(fid + '-temp-' + item.key);
+        if (tempEl) tempEl.focus();
+        return false;
+      }
+      if (!isFinite(Number(d.tempValue))) {
+        showToast('[' + item.sub + '] 측정값은 숫자로 입력해주세요!', 'error');
+        var tempEl2 = document.getElementById(fid + '-temp-' + item.key);
+        if (tempEl2) tempEl2.focus();
+        return false;
+      }
+    }
     if (d.result === 'ng') {
       if (!d.defectText || !d.defectText.trim()) {
         showToast('[' + item.sub + '] 부적합 내용을 입력해주세요!', 'error');
@@ -250,6 +816,24 @@ function validateFormData(data, config) {
       }
     }
   }
+
+  // si0203: 단계 발생 시 개선조치 미입력 경고
+  if (config.formId === 'si0203') {
+    var metaInfo = config.metaInfo || {};
+    var criteria = metaInfo.pestCriteria;
+    if (criteria) {
+      var season  = getPestSeason();
+      var totals  = calcPestTotals(config);
+      var lvl     = matchPestLevel(totals, criteria, season);
+      if (lvl && !formState.pestAction) {
+        showToast('⚠️ 해충 ' + lvl.level + ' 발생! 개선조치를 입력한 후 제출하세요.', 'error');
+        var panel = document.getElementById('pest-action-panel');
+        if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return false;
+      }
+    }
+  }
+
   return true;
 }
 
@@ -270,6 +854,11 @@ function getFormDefectSummary(data, config) {
   });
 }
 
+// ── js_form.html 라우터용 프록시 함수 ────────────────────
+function collectSi0201Data() { return collectEngineFormData(_engineConfig); }
+function validateSi0201(data) { return validateEngineFormData(data, _engineConfig); }
+function getSi0201DefectSummary(data) { return getFormDefectSummary(data, _engineConfig); }
+
 // ── 결재란 signCols 빌드 ──────────────────────────────
 function buildFormSignCols(rec, sigRes) {
   var writerSig   = (sigRes && sigRes.writerSignature)
@@ -280,23 +869,203 @@ function buildFormSignCols(rec, sigRes) {
   var writerLabel   = (sigRes && sigRes.writerTitle)   || state.user.title || state.user.rank || '작성';
   var reviewerLabel = (sigRes && sigRes.reviewerTitle) || '검토';
   var approverLabel = (sigRes && sigRes.approverTitle) || '승인';
-  var hasReviewer   = rec.reviewer && rec.reviewer !== '' && rec.reviewer !== '-';
-  var hasApprover   = rec.approver && rec.approver !== '' && rec.approver !== '-';
+  var hasReviewer   = rec.reviewerName && rec.reviewerName !== '' && rec.reviewerName !== '-';
+  var hasApprover   = rec.approverName && rec.approverName !== '' && rec.approverName !== '-';
 
-  var cols = [{ role: '작성', title: writerLabel || '-', name: rec.writerName || '-', date: rec.date || '-', sig: writerSig || '' }];
-  if (hasReviewer) cols.push({ role: '검토', title: reviewerLabel || '-', name: rec.reviewer || '-', date: rec.date || '-', sig: reviewerSig || '' });
-  cols.push({ role: '승인', title: approverLabel || '-', name: hasApprover ? (rec.approver || '-') : '-', date: hasApprover ? (rec.date || '-') : '-', sig: hasApprover ? (approverSig || '') : '' });
+  var cols = [{ role: '작성', title: writerLabel || '-', name: rec.writerName || '-', date: rec.writerDate || rec.date || '-', sig: writerSig || '' }];
+  if (hasReviewer) cols.push({ role: '검토', title: reviewerLabel || '-', name: rec.reviewerName || '-', date: rec.reviewerDate || rec.date || '-', sig: reviewerSig || '' });
+  cols.push({ role: '승인', title: approverLabel || '-', name: hasApprover ? (rec.approverName || '-') : '-', date: hasApprover ? (rec.approverDate || rec.date || '-') : '-', sig: hasApprover ? (approverSig || '') : '' });
   return cols;
+}
+
+// ── 조도점검표 전용 인쇄 본문 HTML ───────────────────
+function buildLuxBodyHtml(data, config) {
+  var header =
+    '<tr style="background:#f0f0f0;font-weight:bold;font-size:9pt;">' +
+      '<th style="width:28px;padding:3px 4px;">No</th>' +
+      '<th style="padding:3px 6px;text-align:left;">측정위치</th>' +
+      '<th style="width:80px;padding:3px 6px;">조도기준(Lux)</th>' +
+      '<th style="width:80px;padding:3px 6px;">측정결과(Lux)</th>' +
+      '<th style="width:48px;padding:3px 6px;">판정</th>' +
+    '</tr>';
+  var rows = header;
+  var seq = 0;
+  config.groups.forEach(function(grp) {
+    rows += '<tr class="pgrp-header"><td colspan="5">' + grp.group + '</td></tr>';
+    grp.items.forEach(function(item) {
+      var d      = data.items[item.key] || {};
+      var isNg   = d.result === 'ng';
+      var tv     = (d.tempValue !== undefined && d.tempValue !== '') ? d.tempValue : '-';
+      var minVal = item.min !== undefined ? ('≥ ' + item.min) : '-';
+      var trStyle = isNg ? ' style="background:#fff0f0;"' : '';
+      var resultHtml = isNg
+        ? '<strong style="color:#c0392b;">' + tv + '</strong>'
+        : tv;
+      var judgeHtml = tv === '-'
+        ? '<span style="color:#999;">-</span>'
+        : isNg
+          ? '<strong style="color:#c0392b;">부적합</strong>'
+          : '<span style="color:#27ae60;">적합</span>';
+      rows +=
+        '<tr' + trStyle + '>' +
+          '<td class="pitem-sub" style="width:28px;">' + (++seq) + '</td>' +
+          '<td style="padding:3px 6px;font-size:9pt;text-align:left;">' + item.desc + '</td>' +
+          '<td style="padding:3px 6px;font-size:9pt;text-align:center;">' + minVal + '</td>' +
+          '<td class="pitem-result" style="width:80px;">' + resultHtml + '</td>' +
+          '<td style="padding:3px 6px;font-size:9pt;text-align:center;">' + judgeHtml + '</td>' +
+        '</tr>';
+    });
+  });
+  return '<table class="pcheck" style="width:100%;">' + rows + '</table>';
+}
+
+// ── si0203 방충방서 전용 인쇄 본문 ────────────────────
+function buildSi0203BodyHtml(data, config) {
+  var items = (data && data.items) ? data.items : {};
+  var meta = config.metaInfo || {};
+  var p5Keys = meta.p5Keys || [];
+  var b1Keys = meta.b1Keys || [];
+  var s3Keys = meta.s3Keys || [];
+  var s2Keys = meta.s2Keys || [];
+
+  var flyingSpecies = ['ggaldagu', 'mogi', 'pari', 'nalpari', 'nabang', 'etc_fly'];
+  var flyingLabels  = ['깔다구', '모기', '파리', '날파리', '나방', '기타'];
+  var crawlSpecies  = ['gaemi', 'grima', 'gwittu', 'etc_crawl'];
+  var crawlLabels   = ['개미', '그리마', '귀뚜라미', '기타'];
+
+  function getVal(key) {
+    var d = items[key];
+    if (!d) return 0;
+    var n = parseFloat(d.tempValue);
+    return isFinite(n) ? n : 0;
+  }
+  function getSelect(key) {
+    var d = items[key];
+    return d ? (d.result === 'ng' ? '부적합' : (d.result === 'ok' ? '적합' : '-')) : '-';
+  }
+
+  // P5 비래해충: 종별(6) + 합계 + 전원/청소/UV 3컬럼
+  function buildFlyingTable(deviceKeys, deviceTypeName) {
+    var thStyle = 'style="padding:4px 6px;border:1px solid #444;text-align:center"';
+    var td      = 'style="padding:3px 4px;border:1px solid #ddd;text-align:center"';
+    var thCols  = flyingLabels.map(function(l) { return '<th ' + thStyle + '>' + l + '</th>'; }).join('') +
+                  '<th ' + thStyle + '>합계</th>' +
+                  '<th ' + thStyle + '>전원</th>' +
+                  '<th ' + thStyle + '>청소</th>' +
+                  '<th ' + thStyle + '>UV등</th>';
+    var rows = deviceKeys.map(function(dk) {
+      var grp = config.groups.find(function(g) { return g.group && g.group.indexOf(dk) !== -1; });
+      var dLabel = grp ? grp.group.replace(/^\[.*?\]\s*/, '') : dk;
+      var vals  = flyingSpecies.map(function(sp) { return getVal(sp + '_' + dk); });
+      var total = vals.reduce(function(a, b) { return a + b; }, 0);
+      var power = getSelect('power_' + dk);
+      var clean = getSelect('clean_' + dk);
+      var uv    = getSelect('uv_' + dk);
+      function colorTd(v) {
+        return '<td style="padding:3px 4px;border:1px solid #ddd;text-align:center;color:' + (v === '부적합' ? '#c0392b' : (v === '적합' ? '#27ae60' : '#888')) + '">' + v + '</td>';
+      }
+      var tds = vals.map(function(v) { return '<td ' + td + '>' + v + '</td>'; }).join('');
+      tds += '<td style="padding:3px 4px;border:1px solid #ddd;text-align:center;font-weight:bold">' + total + '</td>';
+      tds += colorTd(power) + colorTd(clean) + colorTd(uv);
+      return '<tr><td style="padding:3px 4px;border:1px solid #ddd">' + dLabel + '</td>' + tds + '</tr>';
+    }).join('');
+    return (
+      '<div style="margin-bottom:8px"><strong>' + deviceTypeName + '</strong></div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:12px;border:1px solid #ccc">' +
+        '<thead><tr style="background:#2c3e50;color:#fff"><th style="text-align:left;padding:4px 6px;border:1px solid #444">장치</th>' + thCols + '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>'
+    );
+  }
+
+  // B1 보행해충: 종별(4) + 합계 + 끈끈이 상태
+  function buildCrawlingTable(deviceKeys, deviceTypeName) {
+    var thStyle = 'style="padding:4px 6px;border:1px solid #444;text-align:center"';
+    var td      = 'style="padding:3px 4px;border:1px solid #ddd;text-align:center"';
+    var thCols  = crawlLabels.map(function(l) { return '<th ' + thStyle + '>' + l + '</th>'; }).join('') +
+                  '<th ' + thStyle + '>합계</th>' +
+                  '<th ' + thStyle + '>끈끈이</th>';
+    var rows = deviceKeys.map(function(dk) {
+      var grp = config.groups.find(function(g) { return g.group && g.group.indexOf(dk) !== -1; });
+      var dLabel = grp ? grp.group.replace(/^\[.*?\]\s*/, '') : dk;
+      var vals  = crawlSpecies.map(function(sp) { return getVal(sp + '_' + dk); });
+      var total = vals.reduce(function(a, b) { return a + b; }, 0);
+      var glue  = getSelect('glue_' + dk);
+      var tds   = vals.map(function(v) { return '<td ' + td + '>' + v + '</td>'; }).join('');
+      tds += '<td style="padding:3px 4px;border:1px solid #ddd;text-align:center;font-weight:bold">' + total + '</td>';
+      tds += '<td style="padding:3px 4px;border:1px solid #ddd;text-align:center;color:' + (glue === '부적합' ? '#c0392b' : (glue === '적합' ? '#27ae60' : '#888')) + '">' + glue + '</td>';
+      return '<tr><td style="padding:3px 4px;border:1px solid #ddd">' + dLabel + '</td>' + tds + '</tr>';
+    }).join('');
+    return (
+      '<div style="margin-bottom:8px"><strong>' + deviceTypeName + '</strong></div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:12px;border:1px solid #ccc">' +
+        '<thead><tr style="background:#2c3e50;color:#fff"><th style="text-align:left;padding:4px 6px;border:1px solid #444">장치</th>' + thCols + '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>'
+    );
+  }
+
+  function buildRodentTable(deviceKeys, deviceTypeName) {
+    var rows = deviceKeys.map(function(dk) {
+      var grp = config.groups.find(function(g) { return g.group && g.group.indexOf(dk) !== -1; });
+      var dLabel = grp ? grp.group.replace(/^\[.*?\]\s*/, '') : dk;
+      var cnt = getVal('rodent_' + dk);
+      var cover = getSelect('cover_' + dk);
+      var glue  = getSelect('glue_' + dk);
+      var rTd = 'padding:3px 4px;border:1px solid #ddd';
+      return (
+        '<tr>' +
+          '<td style="' + rTd + '">' + dLabel + '</td>' +
+          '<td style="' + rTd + ';text-align:center;font-weight:bold">' + cnt + '</td>' +
+          '<td style="' + rTd + ';text-align:center;color:' + (cover === '부적합' ? '#c0392b' : '#27ae60') + '">' + cover + '</td>' +
+          '<td style="' + rTd + ';text-align:center;color:' + (glue === '부적합' ? '#c0392b' : '#27ae60') + '">' + glue + '</td>' +
+        '</tr>'
+      );
+    }).join('');
+    return (
+      '<div style="margin-bottom:8px"><strong>' + deviceTypeName + '</strong></div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:12px;border:1px solid #ccc">' +
+        '<thead><tr style="background:#2c3e50;color:#fff">' +
+          '<th style="text-align:left;padding:4px 6px;border:1px solid #444">장치</th>' +
+          '<th style="padding:4px 6px;border:1px solid #444;text-align:center">포획수</th>' +
+          '<th style="padding:4px 6px;border:1px solid #444;text-align:center">커버관리</th>' +
+          '<th style="padding:4px 6px;border:1px solid #444;text-align:center">끈끈이</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>'
+    );
+  }
+
+  var totalFlying  = p5Keys.reduce(function(sum, dk) { return sum + flyingSpecies.reduce(function(s, sp) { return s + getVal(sp + '_' + dk); }, 0); }, 0);
+  var totalCrawling = b1Keys.reduce(function(sum, dk) { return sum + crawlSpecies.reduce(function(s, sp) { return s + getVal(sp + '_' + dk); }, 0); }, 0);
+  var totalRodent  = s3Keys.concat(s2Keys).reduce(function(sum, dk) { return sum + getVal('rodent_' + dk); }, 0);
+
+  var summaryBar = (
+    '<div style="display:flex;gap:16px;padding:8px 12px;background:#f0f4f8;border-radius:6px;margin-bottom:12px;font-size:11px">' +
+      '<span>비래해충 합계: <strong>' + totalFlying + '마리</strong></span>' +
+      '<span>보행해충 합계: <strong>' + totalCrawling + '마리</strong></span>' +
+      '<span>설치류 포획: <strong>' + totalRodent + '마리</strong></span>' +
+    '</div>'
+  );
+
+  return (
+    summaryBar +
+    buildFlyingTable(p5Keys, '▶ 비래해충 포집장치 (P5)') +
+    buildCrawlingTable(b1Keys, '▶ 보행해충 포집장치 (B1)') +
+    buildRodentTable(s3Keys, '▶ 설치류 포획장치 (S3)') +
+    buildRodentTable(s2Keys, '▶ 설치류 먹이/포획장치 (S2)')
+  );
 }
 
 // ── 인쇄 본문 HTML (2칼럼 체크리스트) ─────────────────
 function buildFormBodyHtml(data, rec, config) {
+  if (config.formId === 'si0101') return buildLuxBodyHtml(data, config);
+  if (config.formId === 'si0203') return buildSi0203BodyHtml(data, config);
+
   var groups   = config.groups;
   var mid      = Math.ceil(groups.length / 2);
   var left     = groups.slice(0, mid);
   var right    = groups.slice(mid);
-  var location = data.location || config.location || '-';
-  var period   = config.period  || '-';
 
   function buildCheckCol(grps) {
     var rows = '';
@@ -304,9 +1073,14 @@ function buildFormBodyHtml(data, rec, config) {
       rows += '<tr class="pgrp-header"><td colspan="3">' + grp.group + '</td></tr>';
       grp.items.forEach(function(item) {
         var d   = data.items[item.key] || {};
-        var res = d.result === 'ng'
-          ? '<span class="png">×</span>'
-          : '<span class="pok">○</span>';
+        var isNg = d.result === 'ng';
+        var res;
+        if (item.inputType === 'temp') {
+          var tv = d.tempValue !== undefined && d.tempValue !== '' ? d.tempValue + (item.unit || '°C') : '-';
+          res = tv + ' ' + (isNg ? '<span class="png">×</span>' : '<span class="pok">○</span>');
+        } else {
+          res = isNg ? '<span class="png">×</span>' : '<span class="pok">○</span>';
+        }
         rows +=
           '<tr>' +
             '<td class="pitem-sub">'    + item.sub  + '</td>' +
@@ -319,12 +1093,6 @@ function buildFormBodyHtml(data, rec, config) {
   }
 
   return (
-    '<table class="pinfo"><tr>' +
-      '<td class="pinfo-label">점검일자</td><td>' + rec.date + '</td>' +
-      '<td class="pinfo-label">점검자</td><td>'   + (rec.writerName || '-') + '</td>' +
-      '<td class="pinfo-label">점검위치</td><td>' + location + '</td>' +
-      '<td class="pinfo-label">점검주기</td><td>' + period + '</td>' +
-    '</tr></table>' +
     '<div class="plegend">○ 적합 &nbsp;|&nbsp; × 부적합</div>' +
     '<div class="pcheck-wrap">' +
       buildCheckCol(left) +
@@ -375,19 +1143,25 @@ function buildFormDefectHtml(ngItems) {
 
 // ── 뷰어 HTML ──────────────────────────────────────────
 function buildFormViewHtml(rec, dataJsonStr, title, sigRes, config) {
-  var data = {};
-  try { data = JSON.parse(dataJsonStr); } catch(e) {}
+  var data = typeof dataJsonStr === 'string' ? {} : (dataJsonStr || {});
+  if (typeof dataJsonStr === 'string') {
+    try { data = JSON.parse(dataJsonStr); } catch(e) {}
+  }
   if (!data || !data.items) return '<p style="color:#999;text-align:center;padding:20px;">작성된 내용이 없습니다.</p>';
 
-  var location = data.location || config.location || '-';
+  var location = data.location || config.location || '작업장';
 
   var groupHtml = config.groups.map(function(grp) {
     var rows = grp.items.map(function(item) {
       var d          = data.items[item.key] || {};
       var isNg       = d.result === 'ng';
-      var resultHtml = isNg
-        ? '<span class="result-ng">× 부적합</span>'
-        : '<span class="result-ok">○ 적합</span>';
+      var resultHtml;
+      if (item.inputType === 'temp') {
+        var tv2 = d.tempValue !== undefined && d.tempValue !== '' ? d.tempValue + (item.unit || '°C') + ' ' : '';
+        resultHtml = tv2 + (isNg ? '<span class="result-ng">× 부적합</span>' : '<span class="result-ok">○ 적합</span>');
+      } else {
+        resultHtml = isNg ? '<span class="result-ng">× 부적합</span>' : '<span class="result-ok">○ 적합</span>';
+      }
 
       var ngDetail = '';
       if (isNg) {
@@ -443,6 +1217,208 @@ function buildFormViewHtml(rec, dataJsonStr, title, sigRes, config) {
   '</div>';
 }
 
+// ── 이물관리 주간 인쇄 헬퍼 ────────────────────────────
+function _fengineCreateUtcDate(dateStr) {
+  var parts = String(dateStr || '').split('-').map(Number);
+  return new Date(Date.UTC(parts[0] || 1970, (parts[1] || 1) - 1, parts[2] || 1));
+}
+
+function _fengineFormatUtcDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function _fengineGetMonthBounds(monthKey) {
+  var first = _fengineCreateUtcDate(monthKey + '-01');
+  var last = new Date(first);
+  last.setUTCMonth(last.getUTCMonth() + 1, 0);
+  return {
+    from: _fengineFormatUtcDate(first),
+    to: _fengineFormatUtcDate(last)
+  };
+}
+
+function _si0201GetMonday(dateStr) {
+  var d = _fengineCreateUtcDate(dateStr);
+  var dow = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+  return _fengineFormatUtcDate(d);
+}
+
+function _si0201BuildWeekDays(mondayStr, workedDates) {
+  var workedSet = {};
+  workedDates.forEach(function(d) { workedSet[d] = true; });
+  var korDay = ['일', '월', '화', '수', '목', '금', '토'];
+  var result = [];
+  for (var i = 0; i < 7; i++) {
+    var d = _fengineCreateUtcDate(mondayStr);
+    d.setUTCDate(d.getUTCDate() + i);
+    var dateStr = _fengineFormatUtcDate(d);
+    var dow = d.getUTCDay();
+    var worked = !!workedSet[dateStr];
+    if (dow !== 0 && dow !== 6 || worked) {
+      result.push({
+        date: dateStr,
+        label: korDay[dow] + '(' + (d.getUTCMonth() + 1) + '/' + d.getUTCDate() + ')',
+        worked: worked
+      });
+    }
+  }
+  return result;
+}
+
+// weekEntries: [{ rec, data:{items,...}, sigRes }] — 날짜순 정렬된 배열
+function buildWeeklyForeignMatterPrintHtml(weekEntries, config) {
+  var workedDates = weekEntries.map(function(e) { return e.rec.date; });
+  var mondayStr   = _si0201GetMonday(workedDates[0]);
+  var weekDays    = _si0201BuildWeekDays(mondayStr, workedDates);
+  var dayDataMap  = {};
+  weekEntries.forEach(function(e) { dayDataMap[e.rec.date] = e; });
+
+  var lastEntry = weekEntries[weekEntries.length - 1];
+  var signCols  = buildFormSignCols(lastEntry.rec, lastEntry.sigRes);
+  var weekStart = weekDays[0].date;
+  var weekEnd   = weekDays[weekDays.length - 1].date;
+  var location  = (lastEntry.data && lastEntry.data.location && lastEntry.data.location.trim())
+    ? lastEntry.data.location.trim() : (config.location || '\uC791\uC5C5\uC7A5');
+  var metaRow = {
+    date: weekStart + ' ~ ' + weekEnd,
+    writerName: lastEntry.rec.writerName || '',
+    interval: config.interval,
+    location: location
+  };
+
+  var ngItems = [];
+  weekEntries.forEach(function(e) {
+    var dayLabel = '';
+    weekDays.forEach(function(d) { if (d.date === e.rec.date) dayLabel = d.label; });
+    config.groups.forEach(function(grp) {
+      grp.items.forEach(function(item) {
+        var d = ((e.data || {}).items || {})[item.key] || {};
+        if (d.result === 'ng') ngItems.push({ grp: grp.group + ' [' + dayLabel + ']', item: item, d: d });
+      });
+    });
+  });
+
+  var colCount = weekDays.length + 2;
+  var dayHeaders = weekDays.map(function(d) {
+    return '<th style="padding:3px 2px;text-align:center;font-size:8pt;min-width:34px;">' + d.label + '</th>';
+  }).join('');
+  var tableHeader =
+    '<tr style="background:#f0f0f0;font-weight:bold;">' +
+      '<th style="width:24px;padding:3px 2px;">No</th>' +
+      '<th style="padding:3px 6px;text-align:left;">점검 항목</th>' +
+      dayHeaders +
+    '</tr>';
+
+  var tableRows = '';
+  config.groups.forEach(function(grp) {
+    tableRows += '<tr class="pgrp-header"><td colspan="' + colCount + '">' + grp.group + '</td></tr>';
+    grp.items.forEach(function(item) {
+      var cells = weekDays.map(function(day) {
+        if (!day.worked || !dayDataMap[day.date]) return '<td style="text-align:center;color:#bbb;">-</td>';
+        var d = ((dayDataMap[day.date].data || {}).items || {})[item.key] || {};
+        if (d.result === 'ng') return '<td style="text-align:center;color:#c0392b;font-weight:bold;">×</td>';
+        if (d.result === 'ok') return '<td style="text-align:center;color:#27ae60;">○</td>';
+        return '<td style="text-align:center;color:#bbb;">-</td>';
+      }).join('');
+      tableRows +=
+        '<tr>' +
+          '<td class="pitem-sub" style="width:24px;">' + item.sub + '</td>' +
+          '<td style="padding:3px 5px;font-size:8.5pt;text-align:left;">' + item.desc + '</td>' +
+          cells +
+        '</tr>';
+    });
+  });
+
+  var bodyHtml = '<table class="pcheck" style="width:100%;">' + tableHeader + tableRows + '</table>';
+  var totalPages = ngItems.length ? 2 : 1;
+  var page1 = buildPrintPage(config.title, bodyHtml, config, signCols, metaRow, 1, totalPages);
+  var page2 = ngItems.length
+    ? buildPrintPage(config.title + ' - 부적합/개선조치', buildFormDefectHtml(ngItems), config, signCols, null, 2, totalPages)
+    : '';
+  return page1 + page2;
+}
+
+function buildMonthlyWorkplacePrintHtml(monthEntries, config) {
+  var sortedEntries = monthEntries.slice().sort(function(a, b) {
+    return a.rec.date < b.rec.date ? -1 : a.rec.date > b.rec.date ? 1 : 0;
+  });
+  var lastEntry = sortedEntries[sortedEntries.length - 1];
+  var signCols = buildFormSignCols(lastEntry.rec, lastEntry.sigRes);
+  var monthKey = String(sortedEntries[0].rec.date || '').slice(0, 7);
+  var monthBounds = _fengineGetMonthBounds(monthKey);
+  var location = (lastEntry.data && lastEntry.data.location && lastEntry.data.location.trim())
+    ? lastEntry.data.location.trim() : (config.location || '영업장');
+  var metaRow = {
+    date: monthBounds.from + ' ~ ' + monthBounds.to,
+    writerName: lastEntry.rec.writerName || '',
+    interval: config.interval,
+    location: location
+  };
+
+  var weekLabels = sortedEntries.map(function(entry, idx) {
+    var date = _fengineCreateUtcDate(entry.rec.date);
+    return {
+      title: (idx + 1) + '주',
+      dateLabel: (date.getUTCMonth() + 1) + '/' + date.getUTCDate()
+    };
+  });
+
+  var ngItems = [];
+  sortedEntries.forEach(function(entry, idx) {
+    var weekLabel = weekLabels[idx].title + '(' + weekLabels[idx].dateLabel + ')';
+    config.groups.forEach(function(grp) {
+      grp.items.forEach(function(item) {
+        var d = ((entry.data || {}).items || {})[item.key] || {};
+        if (d.result === 'ng') ngItems.push({ grp: grp.group + ' [' + weekLabel + ']', item: item, d: d });
+      });
+    });
+  });
+
+  var colCount = weekLabels.length + 2;
+  var weekHeaderHtml = weekLabels.map(function(label) {
+    return (
+      '<th style="padding:3px 2px;text-align:center;font-size:8pt;min-width:42px;">' +
+        '<div>' + label.title + '</div>' +
+        '<div style="font-size:7pt;color:#666;font-weight:400;">' + label.dateLabel + '</div>' +
+      '</th>'
+    );
+  }).join('');
+  var tableHeader =
+    '<tr style="background:#f0f0f0;font-weight:bold;">' +
+      '<th style="width:24px;padding:3px 2px;">No</th>' +
+      '<th style="padding:3px 6px;text-align:left;">점검 항목</th>' +
+      weekHeaderHtml +
+    '</tr>';
+
+  var tableRows = '';
+  config.groups.forEach(function(grp) {
+    tableRows += '<tr class="pgrp-header"><td colspan="' + colCount + '">' + grp.group + '</td></tr>';
+    grp.items.forEach(function(item) {
+      var cells = sortedEntries.map(function(entry) {
+        var d = ((entry.data || {}).items || {})[item.key] || {};
+        if (d.result === 'ng') return '<td style="text-align:center;color:#c0392b;font-weight:bold;">×</td>';
+        if (d.result === 'ok') return '<td style="text-align:center;color:#27ae60;font-weight:bold;">○</td>';
+        return '<td style="text-align:center;color:#bbb;">-</td>';
+      }).join('');
+      tableRows +=
+        '<tr>' +
+          '<td class="pitem-sub" style="width:24px;">' + item.sub + '</td>' +
+          '<td style="padding:3px 5px;font-size:8.5pt;text-align:left;">' + item.desc + '</td>' +
+          cells +
+        '</tr>';
+    });
+  });
+
+  var bodyHtml = '<table class="pcheck" style="width:100%;">' + tableHeader + tableRows + '</table>';
+  var totalPages = ngItems.length ? 2 : 1;
+  var page1 = buildPrintPage(config.title, bodyHtml, config, signCols, metaRow, 1, totalPages);
+  var page2 = ngItems.length
+    ? buildPrintPage(config.title + ' - 부적합/개선조치', buildFormDefectHtml(ngItems), config, signCols, null, 2, totalPages)
+    : '';
+  return page1 + page2;
+}
+
 // ── 인쇄 HTML (전체 페이지 조합) ─────────────────────
 function buildFormPrintHtml(rec, dataJsonStr, sigRes, config) {
   var data = {};
@@ -450,7 +1426,8 @@ function buildFormPrintHtml(rec, dataJsonStr, sigRes, config) {
   if (!data || !data.items) return '';
 
   var signCols = buildFormSignCols(rec, sigRes);
-  var metaRow = { date: rec.date, writerName: rec.writerName, interval: config.interval };
+  var location = (data.location && data.location.trim()) ? data.location.trim() : '작업장';
+  var metaRow = { date: rec.date, writerName: rec.writerName, interval: config.interval, location: location };
 
   var ngItems = [];
   config.groups.forEach(function(grp) {

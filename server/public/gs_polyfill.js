@@ -28,7 +28,6 @@
           body: JSON.stringify(args)
         })
           .then(function (r) {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
           })
           .then(function (data) { if (s) s(data); })

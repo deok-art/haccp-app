@@ -61,14 +61,27 @@ function buildPrintApproveTable(signCols) {
 // ── 헤더 HTML 생성 ────────────────────────────────────
 // titleStr: 헤더에 표시할 제목 문자열
 // signCols: [{ role, title, name, date, sig }, ...]
-// metaRow:  { date, writerName, interval } — 2행 정보 (optional)
+// metaRow:  { date, writerName, interval, location } — 2행 정보 (optional)
 function buildPrintHeader(titleStr, signCols, metaRow) {
-  var intervalMap = { daily: '일간', weekly: '주간', monthly: '월간' };
+  var intervalMap = {
+    daily: '1회/일', weekly: '1회/주', monthly: '1회/월', yearly: '1회/년',
+    twice_week: '2회/주', twice_month: '2회/월',
+    once_quarter: '1회/분기', twice_quarter: '2회/분기'
+  };
   var meta2 = metaRow
     ? '<tr>' +
-        '<td class="pdoc-meta-cell">작성일자: ' + (metaRow.date || '') + '</td>' +
-        '<td class="pdoc-meta-cell">작성자: ' + (metaRow.writerName || '') + '</td>' +
-        '<td class="pdoc-meta-cell">작성주기: ' + (intervalMap[metaRow.interval] || metaRow.interval || '') + '</td>' +
+        '<td colspan="3" style="padding:0;">' +
+          '<table class="pinfo" style="width:100%;margin:0;"><tr>' +
+            '<td class="pinfo-label">작성주기</td>' +
+            '<td>' + (intervalMap[metaRow.interval] || metaRow.interval || '') + '</td>' +
+            '<td class="pinfo-label">작성일자</td>' +
+            '<td>' + (metaRow.date || '') + '</td>' +
+            '<td class="pinfo-label">점검위치</td>' +
+            '<td>' + (metaRow.location || '작업장') + '</td>' +
+            '<td class="pinfo-label">작성자</td>' +
+            '<td>' + (metaRow.writerName || '') + '</td>' +
+          '</tr></table>' +
+        '</td>' +
       '</tr>'
     : '';
   return (
@@ -84,12 +97,12 @@ function buildPrintHeader(titleStr, signCols, metaRow) {
 }
 
 // ── 바닥글 HTML 생성 ─────────────────────────────────
-// config: { revision }
+// config: { docNo, revision }
 function buildPrintFooter(config, pageNum, totalPages) {
   return (
     '<table class="pfoot-table">' +
       '<tr>' +
-        '<td class="pfoot-cell pfoot-left"></td>' +
+        '<td class="pfoot-cell pfoot-left">' + (config.docNo || '') + '</td>' +
         '<td class="pfoot-cell pfoot-center">페이지 ' + pageNum + ' / ' + totalPages + '</td>' +
         '<td class="pfoot-cell pfoot-right">' + (config.revision || '') + '</td>' +
       '</tr>' +

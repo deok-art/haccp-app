@@ -11,6 +11,9 @@ server/*.db
 server/*.db-shm
 server/*.db-wal
 server/.env
+server/playwright-report/
+server/test-results/
+server/test/.tmp/
 
 # OS / editor
 .DS_Store

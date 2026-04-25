@@ -1,0 +1,352 @@
+{
+  "doc_info": {
+    "title": "이물관리 점검표",
+    "doc_no": "PBII-SI-02-01",
+    "rev_no": "미표기",
+    "period": "일 1회"
+  },
+  "items": [
+    {
+      "key": "item_01",
+      "category": "공통-위생복",
+      "label": "앞치마, 토시 등 작업복에 이물 발생 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_02",
+      "category": "공통-방충·방서",
+      "label": "작업장 내에 포충등, 트랩 이상 여부",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_03",
+      "category": "공통-설비/도구",
+      "label": "작업 및 청소도구, 설비 파손여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_04",
+      "category": "공통-위생점검",
+      "label": "2회/일마다 Clean time 실시 여부",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_05",
+      "category": "입고-외관",
+      "label": "이물 및 외포장 상태 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_06",
+      "category": "입고-작업설비",
+      "label": "파렛트 파손여부 등 육안 확인 후 적재",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_07",
+      "category": "입고-기타",
+      "label": "외부 출입 도크 밀폐여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_08",
+      "category": "보관-냉장,냉동보관",
+      "label": "보관 시 이물 혼입 여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_09",
+      "category": "보관-도구",
+      "label": "이동도구 및 파렛트 등 파손 여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_10",
+      "category": "해동-원재료",
+      "label": "외포장 이물 제거 등 청결상태 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_11",
+      "category": "해동-설비/도구",
+      "label": "고주파해동기 청결상태 및 파손 이물 유무 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_12",
+      "category": "방혈-원재료",
+      "label": "내포장 청결상태 및 이물 유무 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_13",
+      "category": "방혈-설비/도구",
+      "label": "해동 대차 청결상태 및 파손 이물 유무 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_14",
+      "category": "전처리-원재료",
+      "label": "비가식부 및 이물 제거 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_15",
+      "category": "전처리-포장재",
+      "label": "내포장재 조각 및 이물 유입 여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_16",
+      "category": "자숙-원재료",
+      "label": "자숙 시 이물 유입 및 작업 환경 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_17",
+      "category": "자숙-설비/도구",
+      "label": "자숙탱크 청결상태 및 파손 이물 유무 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_18",
+      "category": "파쇄-원재료",
+      "label": "파쇄 후 적정 규격 및 이물 유입 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_19",
+      "category": "파쇄-설비/도구",
+      "label": "파쇄기 청결상태 및 파손 이물 유무 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_20",
+      "category": "온수세척-원재료",
+      "label": "온수세척 후 적정 규격 및 이물 유입 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_21",
+      "category": "온수세척-설비/도구",
+      "label": "버블세척기 청결상태 및 파손 이물 유무 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_22",
+      "category": "(소스)계량-부재료",
+      "label": "계량 시 이물 유입 및 작업 환경 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_23",
+      "category": "(소스)계량-설비/도구",
+      "label": "자숙탱크 청결상태 및 파손 이물 유무 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_24",
+      "category": "(소스)배합/가열-부재료",
+      "label": "배합/가열 시 이물 유입 및 작업환경 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_25",
+      "category": "(소스)배합/가열-설비/도구",
+      "label": "배합탱크 청결상태 및 파손 이물 유무 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_26",
+      "category": "내포장-원재료",
+      "label": "충진 시 이물 유입 및 작업환경 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_27",
+      "category": "내포장-설비/도구",
+      "label": "설비 내·외부 이물제거 등 청소상태 및 정상작동 여부(부식·마모)",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_28",
+      "category": "내포장-포장재",
+      "label": "내포장재 파손 및 이물 유입 여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_29",
+      "category": "X-ray 검출-설비/도구",
+      "label": "설비 내·외부 이물제거 등 청소상태 및 정상작동 여부(부식·마모)",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_30",
+      "category": "중량선별-설비/도구",
+      "label": "설비 내·외부 이물제거 등 청소상태 및 정상작동 여부(부식·마모)",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_31",
+      "category": "멸균/살균-설비/도구",
+      "label": "설비 내·외부 이물제거 등 청소상태 및 정상작동 여부(부식·마모)",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_32",
+      "category": "제수-설비/도구",
+      "label": "설비 내·외부 이물제거 등 청소상태 및 정상작동 여부(부식·마모)",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_33",
+      "category": "외포장-설비/도구",
+      "label": "설비 내·외부 이물제거 등 청소상태 및 정상작동 여부(부식·마모)",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_34",
+      "category": "보관-완제품",
+      "label": "구획 및 식별보관, 적재 등 기준 준수 여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_35",
+      "category": "보관-환경",
+      "label": "보관기준(온도, 청결) 준수 여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_36",
+      "category": "보관-설비/도구",
+      "label": "보관 파렛트 파손 및 청결 여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_37",
+      "category": "출하-설비/도구",
+      "label": "운반기구 및 차량 청결상태 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    },
+    {
+      "key": "item_38",
+      "category": "출하-포장재",
+      "label": "포장재 파손 여부 확인",
+      "type": "select",
+      "options": ["○", "×"],
+      "criteria": { "min": null, "max": null },
+      "required_defect_action": true
+    }
+  ]
+}

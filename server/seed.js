@@ -9,6 +9,8 @@
  */
 
 const { db, now } = require('./db');
+const { ensureDefaultTemplates } = require('./ensure-default-templates');
+const { ensureFactoryCalendarDefaults } = require('./factory-calendar');
 const crypto = require('crypto');
 const fs     = require('fs');
 const path   = require('path');
@@ -288,6 +290,88 @@ function seedSi0201Template() {
   console.log('si0201 템플릿 투입 완료 (항목 ' + items.filter(i => i.type === 'check').length + '개)');
 }
 
+// ── 테스트용 온도·위생 점검 템플릿 투입 ──────────────
+function seedTest001Template() {
+  const exists = db.prepare("SELECT 1 FROM log_templates WHERE log_id='test001'").get();
+  if (exists) { console.log('test001 템플릿 이미 존재 — 건너뜀'); return; }
+
+  const items = [
+    { type:'group_header', key:'g_hygiene',   label:'위생 점검' },
+    { type:'check', key:'c_hygiene',  label:'위생복 상태 (앞치마·토시 착용 여부)' },
+    { type:'check', key:'c_clean',    label:'작업장 청결 (바닥·벽면·배수구)' },
+    { type:'check', key:'c_foreign',  label:'이물 혼입 방지 (뚜껑 닫힘·망 설치)' },
+    { type:'group_header', key:'g_cold',      label:'냉장 보관 온도' },
+    { type:'temp',  key:'t_cold1',    label:'냉장고 1호기', unit:'°C', min:0,    max:10  },
+    { type:'temp',  key:'t_cold2',    label:'냉장고 2호기', unit:'°C', min:0,    max:10  },
+    { type:'group_header', key:'g_freeze',    label:'냉동 보관 온도' },
+    { type:'temp',  key:'t_frz1',     label:'냉동고 1호기', unit:'°C', min:null, max:-18 },
+    { type:'temp',  key:'t_frz2',     label:'냉동고 2호기', unit:'°C', min:null, max:-18 },
+  ];
+
+  db.prepare(`
+    INSERT INTO log_templates (log_id, title, doc_no, revision, factory_id, interval, approval, items)
+    VALUES ('test001','온도·위생 점검표 (테스트)','PBⅡ-TEST-01','Rev.1','pb2','daily',
+      '[{"role":"작성","name":""},{"role":"검토","name":""},{"role":"승인","name":""}]',
+      ?)
+  `).run(JSON.stringify(items));
+
+  console.log('test001 템플릿 투입 완료 (항목 ' + items.filter(i => i.type !== 'group_header').length + '개)');
+}
+
+// ── 조도 점검표 템플릿 투입 ───────────────────────────
+function seedSi0101Template() {
+  const exists = db.prepare("SELECT 1 FROM log_templates WHERE log_id='si0101'").get();
+  if (exists) { console.log('si0101 템플릿 이미 존재 — 건너뜀'); return; }
+
+  const items = [
+    { type:'group_header', key:'g_crush',   label:'파쇄실' },
+    { type:'numeric', key:'item_01', label:'파쇄실 - 파쇄기',         unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_02', label:'파쇄실 - 작업대1',        unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_inpack',  label:'내포장실' },
+    { type:'numeric', key:'item_03', label:'내포장실 - 내포장기1',    unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_04', label:'내포장실 - 내포장기2',    unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_05', label:'내포장실 - 내포장기3',    unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_06', label:'내포장실 - 내포장기4',    unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_measure', label:'계량실' },
+    { type:'numeric', key:'item_07', label:'계량실 - 전자저울',       unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_pre',     label:'전처리실' },
+    { type:'numeric', key:'item_08', label:'전처리실 - 작업대1',      unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_09', label:'전처리실 - 작업대2',      unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_boil',    label:'자숙실' },
+    { type:'numeric', key:'item_10', label:'자숙실 - 자숙탱크1~2호', unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_11', label:'자숙실 - 자숙탱크3~4호', unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_12', label:'자숙실 - 자숙탱크5~6호', unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_13', label:'자숙실 - 소스가열탱크',   unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_thaw',    label:'해동실' },
+    { type:'numeric', key:'item_14', label:'해동실 - 고주파해동기',   unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_bleed',   label:'방혈실' },
+    { type:'numeric', key:'item_15', label:'방혈실 - 방혈대차1',      unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_16', label:'방혈실 - 방혈대차2',      unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_outpack', label:'외포장실' },
+    { type:'numeric', key:'item_17', label:'외포장실 - 멸균기',       unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_18', label:'외포장실 - 제수기',       unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_19', label:'외포장실 - 제함기',       unit:'Lux', criteria:{ min:220, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_ship',    label:'입·출고장' },
+    { type:'numeric', key:'item_20', label:'입·출고장 - 검수위치',    unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_cold',    label:'냉장·냉동창고' },
+    { type:'numeric', key:'item_21', label:'냉장창고 - 중앙',         unit:'Lux', criteria:{ min:110, max:null }, required_defect_action:true },
+    { type:'numeric', key:'item_22', label:'냉동창고 - 중앙',         unit:'Lux', criteria:{ min:110, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_sauce',   label:'소스저장실' },
+    { type:'numeric', key:'item_23', label:'소스저장실 - 중앙',       unit:'Lux', criteria:{ min:110, max:null }, required_defect_action:true },
+    { type:'group_header', key:'g_lab',     label:'실험실' },
+    { type:'numeric', key:'item_24', label:'실험실 - 클린벤치',       unit:'Lux', criteria:{ min:540, max:null }, required_defect_action:true },
+  ];
+
+  db.prepare(`
+    INSERT INTO log_templates (log_id, title, doc_no, revision, factory_id, interval, approval, items)
+    VALUES ('si0101','조도 점검표','PBⅡ-SI-01-01','Rev.1','pb2','monthly',
+      '[{"role":"작성","name":""},{"role":"검토","name":""},{"role":"승인","name":""}]',
+      ?)
+  `).run(JSON.stringify(items));
+
+  console.log('si0101 템플릿 투입 완료 (항목 24개)');
+}
+
 // ── 진입점 ────────────────────────────────────────────
 const arg = process.argv[2];
 
@@ -312,6 +396,10 @@ if (arg && fs.existsSync(arg)) {
   seedDefaultFactories();
   seedDefaultUsers();
   seedSi0201Template();
+  seedTest001Template();
+  seedSi0101Template();
+  ensureDefaultTemplates(db);
+  ensureFactoryCalendarDefaults(db);
 }
 
 console.log('✓ 시드 완료');
