@@ -11,16 +11,16 @@
 const { db, now } = require('./db');
 const { ensureDefaultTemplates } = require('./ensure-default-templates');
 const { ensureFactoryCalendarDefaults } = require('./factory-calendar');
-const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 const fs     = require('fs');
 const path   = require('path');
 
 function hashPassword(pw) {
-  return crypto.createHash('sha256').update(pw).digest('hex');
+  return bcrypt.hashSync(pw, 12);
 }
 
 function isAlreadyHashed(str) {
-  return typeof str === 'string' && /^[0-9a-f]{64}$/.test(str);
+  return typeof str === 'string' && /^\$2[aby]\$/.test(str);
 }
 
 // ── CSV 파서 (의존성 없는 구현, quoted field 지원) ─────

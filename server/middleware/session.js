@@ -1,7 +1,15 @@
 const session = require('express-session');
 
+const secret = process.env.SESSION_SECRET;
+if (!secret) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[HACCP] SESSION_SECRET 환경변수가 설정되지 않았습니다. 서버를 시작할 수 없습니다.');
+  }
+  console.warn('[HACCP 경고] SESSION_SECRET 미설정 — 개발 환경에서만 허용됩니다.');
+}
+
 const sessionMiddleware = session({
-  secret:            process.env.SESSION_SECRET || 'haccp-dev-secret',
+  secret:            secret || 'haccp-dev-secret',
   resave:            false,
   saveUninitialized: false,
   cookie: {

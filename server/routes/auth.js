@@ -1,13 +1,18 @@
-const express = require('express');
-const crypto  = require('crypto');
-const { db }  = require('../db');
+const express   = require('express');
+const bcrypt    = require('bcrypt');
+const rateLimit = require('express-rate-limit');
+const { db }    = require('../db');
 const { requireAuth } = require('../middleware/session');
 
 const router = express.Router();
 
-function sha256(text) {
-  return crypto.createHash('sha256').update(text).digest('hex');
-}
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: '로그인 시도 횟수 초과입니다. 15분 후 다시 시도하세요.' }
+});
 
 function deriveTitle(user) {
   if (!user) return '';
@@ -23,7 +28,7 @@ function deriveTitle(user) {
 }
 
 // POST /api/login
-router.post('/login', (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const [id, pw] = req.body;
   if (!id || pw === undefined) return res.json({ success: false, message: '아이디와 비밀번호를 입력하세요.' });
 
@@ -35,11 +40,10 @@ router.post('/login', (req, res) => {
     return res.json({ success: true, mustChangePw: true, userInfo: { id: user.id, name: user.name, signature: user.signature || '' } });
   }
 
-  if (user.password_hash !== sha256(pw)) {
-    return res.json({ success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' });
-  }
+  const match = await bcrypt.compare(pw, user.password_hash || '');
+  if (!match) return res.json({ success: false, message: '아이디 또는 비밀번호가 올바르지 않습니다.' });
 
-  const factoryRoles = JSON.parse(user.factory_roles || '{}');
+  const factoryRoles    = JSON.parse(user.factory_roles    || '{}');
   const factoryDeputies = JSON.parse(user.factory_deputies || '{}');
 
   const userInfo = {
@@ -47,10 +51,10 @@ router.post('/login', (req, res) => {
     name: user.name,
     factoryRoles,
     factoryDeputies,
-    isMaster: user.is_master === 1,
+    isMaster:  user.is_master === 1,
     signature: user.signature || '',
-    rank: user.rank || '',
-    title: deriveTitle(user),
+    rank:      user.rank || '',
+    title:     deriveTitle(user),
   };
 
   req.session.user = userInfo;
@@ -63,7 +67,7 @@ router.post('/logout', (req, res) => {
 });
 
 // POST /api/updatePassword
-router.post('/updatePassword', requireAuth, (req, res) => {
+router.post('/updatePassword', requireAuth, async (req, res) => {
   const [id, plainPw] = req.body;
   if (!id || !plainPw) return res.json({ success: false, message: '입력값이 올바르지 않습니다.' });
 
@@ -72,7 +76,8 @@ router.post('/updatePassword', requireAuth, (req, res) => {
     return res.json({ success: false, message: '권한이 없습니다.' });
   }
 
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(sha256(plainPw), id);
+  const hash = await bcrypt.hash(plainPw, 12);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
   res.json({ success: true });
 });
 
