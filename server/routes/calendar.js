@@ -1,6 +1,5 @@
 const express = require('express');
 const { db, now } = require('../db');
-const { requireAuth } = require('../middleware/session');
 const {
   ensureFactoryCalendarDefaults,
   getFactoryCalendarMonth,
@@ -24,7 +23,7 @@ function requireFactoryAccess(req, res, factoryId, minRole) {
   return false;
 }
 
-router.post('/getFactoryCalendarMonth', requireAuth, async (req, res) => {
+router.post('/getFactoryCalendarMonth', async (req, res) => {
   try {
     const [factoryId, monthKey] = req.body;
     if (!factoryId || !monthKey) {
@@ -40,7 +39,7 @@ router.post('/getFactoryCalendarMonth', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/getMissingDashboard', requireAuth, async (req, res) => {
+router.post('/getMissingDashboard', async (req, res) => {
   try {
     const [factoryId, monthKey] = req.body;
     if (!factoryId || !monthKey) {
@@ -56,7 +55,7 @@ router.post('/getMissingDashboard', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/updateFactoryCalendarRule', requireAuth, (req, res) => {
+router.post('/updateFactoryCalendarRule', (req, res) => {
   const [factoryId, weekdayMask, useNationalHolidays] = req.body;
   if (!factoryId) return res.json({ success: false, message: '공장 정보가 없습니다.' });
   if (!requireFactoryAccess(req, res, factoryId, 2)) return;
@@ -83,7 +82,7 @@ router.post('/updateFactoryCalendarRule', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
-router.post('/updateFactoryCalendarDay', requireAuth, (req, res) => {
+router.post('/updateFactoryCalendarDay', (req, res) => {
   const [factoryId, dateStr, overrideType, reason] = req.body;
   if (!factoryId || !dateStr) {
     return res.json({ success: false, message: '파라미터가 올바르지 않습니다.' });
@@ -122,7 +121,7 @@ router.post('/updateFactoryCalendarDay', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
-router.post('/syncNationalHolidays', requireAuth, async (req, res) => {
+router.post('/syncNationalHolidays', async (req, res) => {
   try {
     const [year, factoryId] = req.body;
     if (factoryId && !requireFactoryAccess(req, res, factoryId, 2)) return;

@@ -1,6 +1,5 @@
 const express = require('express');
 const { db, safeJson, now, today } = require('../db');
-const { requireAuth }              = require('../middleware/session');
 
 const router = express.Router();
 
@@ -152,7 +151,7 @@ function getExistingPeriodRecord(logId, factoryId, targetDate, interval) {
 }
 
 // ── POST /api/createNewLog ───────────────────────────────
-router.post('/createNewLog', requireAuth, (req, res) => {
+router.post('/createNewLog', (req, res) => {
   const [logId, title, writerId, writerName, targetDate, factoryId] = req.body;
   const template = getTemplate(logId);
   const interval = template ? template.interval : 'daily';
@@ -179,7 +178,7 @@ router.post('/createNewLog', requireAuth, (req, res) => {
 });
 
 // ── POST /api/saveDraft ─────────────────────────────────
-router.post('/saveDraft', requireAuth, (req, res) => {
+router.post('/saveDraft', (req, res) => {
   const [recordId, , dataJson] = req.body;
   const rec = getRecord(recordId);
   if (!rec) return res.json({ success: false, message: '레코드를 찾을 수 없습니다.' });
@@ -194,7 +193,7 @@ router.post('/saveDraft', requireAuth, (req, res) => {
 });
 
 // ── POST /api/saveFormData ──────────────────────────────
-router.post('/saveFormData', requireAuth, (req, res) => {
+router.post('/saveFormData', (req, res) => {
   const [recordId, logId, dataJson, defectInfo] = req.body;
   const { id: writerId, name: writerName } = req.session.user;
   const rec = getRecord(recordId);
@@ -218,7 +217,7 @@ router.post('/saveFormData', requireAuth, (req, res) => {
 });
 
 // ── POST /api/processRecordAction ──────────────────────
-router.post('/processRecordAction', requireAuth, (req, res) => {
+router.post('/processRecordAction', (req, res) => {
   const [recordId, action, userId, userName, userRole, actionDate] = req.body;
   const rec = getRecord(recordId);
   if (!rec) return res.json({ success: false, message: '레코드를 찾을 수 없습니다.' });
@@ -300,7 +299,7 @@ router.post('/processRecordAction', requireAuth, (req, res) => {
 });
 
 // ── POST /api/deleteRecord ──────────────────────────────
-router.post('/deleteRecord', requireAuth, (req, res) => {
+router.post('/deleteRecord', (req, res) => {
   const [recordId] = req.body;
   const rec = getRecord(recordId);
   if (!rec) return res.json({ success: false, message: '레코드를 찾을 수 없습니다.' });
@@ -313,7 +312,7 @@ router.post('/deleteRecord', requireAuth, (req, res) => {
 });
 
 // ── POST /api/batchActionByIds ──────────────────────────
-router.post('/batchActionByIds', requireAuth, (req, res) => {
+router.post('/batchActionByIds', (req, res) => {
   const [ids, action, userName, userRole] = req.body;
   if (!Array.isArray(ids) || !ids.length) return res.json({ success: false, message: '대상 없음.' });
 
@@ -347,7 +346,7 @@ router.post('/batchActionByIds', requireAuth, (req, res) => {
 });
 
 // ── POST /api/createTodayDailyLogsBatch ────────────────
-router.post('/createTodayDailyLogsBatch', requireAuth, (req, res) => {
+router.post('/createTodayDailyLogsBatch', (req, res) => {
   const [factoryId, writerId, writerName, forceLogIds, selectedLogIds] = req.body;
   const dateStr = today();
   const forceSet    = new Set(Array.isArray(forceLogIds)    ? forceLogIds    : []);
@@ -397,7 +396,7 @@ router.post('/createTodayDailyLogsBatch', requireAuth, (req, res) => {
 });
 
 // ── POST /api/batchProcessRecords ──────────────────────
-router.post('/batchProcessRecords', requireAuth, (req, res) => {
+router.post('/batchProcessRecords', (req, res) => {
   const [action, userName, userRole] = req.body;
   const caller = req.session.user;
   const n = now();

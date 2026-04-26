@@ -2,7 +2,7 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const { DB_PATH, UPLOAD_DIR } = require('./db');
-const { sessionMiddleware } = require('./middleware/session');
+const { sessionMiddleware, requireAuth } = require('./middleware/session');
 const { serveApp } = require('./serve-html');
 const { isExplicitTestMode, isTestDbPath, isTestUploadPath } = require('./test-safety');
 
@@ -23,11 +23,16 @@ function createApp() {
   app.use('/uploads', express.static(UPLOAD_DIR));
 
   app.use('/api', require('./routes/auth'));
-  app.use('/api', require('./routes/data'));
-  app.use('/api', require('./routes/calendar'));
-  app.use('/api', require('./routes/records'));
-  app.use('/api', require('./routes/users'));
-  app.use('/api', require('./routes/photos'));
+
+  const protected_ = express.Router();
+  protected_.use(requireAuth);
+  protected_.use(require('./routes/data'));
+  protected_.use(require('./routes/calendar'));
+  protected_.use(require('./routes/records'));
+  protected_.use(require('./routes/users'));
+  protected_.use(require('./routes/photos'));
+  app.use('/api', protected_);
+
   if (process.env.ENABLE_TEST_ROUTES === '1' && isExplicitTestMode() && isTestDbPath(DB_PATH)) {
     app.use('/api', require('./routes/test'));
   }

@@ -1,6 +1,5 @@
 const express = require('express');
 const { db, safeJson, now, today } = require('../db');
-const { requireAuth }              = require('../middleware/session');
 const { getDatabasePath, isExplicitTestMode, isTestDbPath } = require('../test-safety');
 
 const router = express.Router();
@@ -36,7 +35,7 @@ function getFactories() {
 }
 
 // POST /api/getUserList
-router.post('/getUserList', requireAuth, (req, res) => {
+router.post('/getUserList', (req, res) => {
   const [requesterId] = req.body;
   const caller = req.session.user;
   const factories = getFactories();
@@ -74,7 +73,7 @@ router.post('/getUserList', requireAuth, (req, res) => {
 });
 
 // POST /api/updateUserInfo
-router.post('/updateUserInfo', requireAuth, (req, res) => {
+router.post('/updateUserInfo', (req, res) => {
   const [requesterId, targetId, updates] = req.body;
   const caller = req.session.user;
 
@@ -105,7 +104,7 @@ router.post('/updateUserInfo', requireAuth, (req, res) => {
 });
 
 // POST /api/getDeputiesByFactories
-router.post('/getDeputiesByFactories', requireAuth, (req, res) => {
+router.post('/getDeputiesByFactories', (req, res) => {
   const [factoryIds] = req.body;
   if (!Array.isArray(factoryIds) || !factoryIds.length) {
     return res.json({ success: true, deputies: [] });
@@ -131,7 +130,7 @@ router.post('/getDeputiesByFactories', requireAuth, (req, res) => {
 });
 
 // POST /api/clearDeputiesByFactories
-router.post('/clearDeputiesByFactories', requireAuth, (req, res) => {
+router.post('/clearDeputiesByFactories', (req, res) => {
   const [factoryIds] = req.body;
   if (!Array.isArray(factoryIds) || !factoryIds.length) {
     return res.json({ success: true });
@@ -166,7 +165,7 @@ router.post('/clearDeputiesByFactories', requireAuth, (req, res) => {
 });
 
 // POST /api/generateTestRecords  (개발용 — 테스트 데이터 생성)
-router.post('/generateTestRecords', requireAuth, (req, res) => {
+router.post('/generateTestRecords', (req, res) => {
   if (!isExplicitTestMode() || !isTestDbPath(getDatabasePath(db))) {
     return res.status(403).json({ success: false, message: '테스트 환경에서만 사용할 수 있습니다.' });
   }

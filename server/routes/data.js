@@ -1,6 +1,5 @@
 const express = require('express');
 const { db, safeJson, today } = require('../db');
-const { requireAuth }         = require('../middleware/session');
 const { buildCalendarSummary, ensureFactoryCalendarDefaults } = require('../factory-calendar');
 
 const router = express.Router();
@@ -59,7 +58,7 @@ function getWeekBounds(dateStr) {
 }
 
 // POST /api/getInitialData
-router.post('/getInitialData', requireAuth, (req, res) => {
+router.post('/getInitialData', (req, res) => {
   Promise.resolve().then(async () => {
     const caller = req.session.user;
     const todayStr = today();
@@ -154,7 +153,7 @@ router.post('/getInitialData', requireAuth, (req, res) => {
 });
 
 // POST /api/getRecordDetail
-router.post('/getRecordDetail', requireAuth, (req, res) => {
+router.post('/getRecordDetail', (req, res) => {
   const [recordId] = req.body;
   if (!recordId) return res.json({ success: false, message: '레코드 ID가 없습니다.' });
 
@@ -185,7 +184,7 @@ router.post('/getRecordDetail', requireAuth, (req, res) => {
 });
 
 // POST /api/getRecordsForDateRange
-router.post('/getRecordsForDateRange', requireAuth, (req, res) => {
+router.post('/getRecordsForDateRange', (req, res) => {
   const [factoryId, fromDate, toDate] = req.body;
   if (!factoryId || !fromDate || !toDate) {
     return res.json({ success: false, message: '파라미터가 올바르지 않습니다.' });

@@ -2,7 +2,6 @@ const express = require('express');
 const fs      = require('fs');
 const path    = require('path');
 const { UPLOAD_DIR } = require('../db');
-const { requireAuth } = require('../middleware/session');
 
 const router    = express.Router();
 
@@ -10,7 +9,7 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // POST /api/savePhoto
 // args: [recordId, fieldKey, base64DataUrl]  (gs_polyfill은 args 배열로 전달)
-router.post('/savePhoto', requireAuth, (req, res) => {
+router.post('/savePhoto', (req, res) => {
   // args: [recordId, logId, logTitle, itemLabel, type, base64DataUrl]
   const [recordId, , , itemLabel, type, base64DataUrl] = req.body;
   const fieldKey = (itemLabel || '') + '_' + (type || '');
@@ -38,7 +37,7 @@ router.post('/savePhoto', requireAuth, (req, res) => {
 });
 
 // POST /api/getPhotoUrl — 저장된 URL 반환 (단순 pass-through, 이미 URL로 저장)
-router.post('/getPhotoUrl', requireAuth, (req, res) => {
+router.post('/getPhotoUrl', (req, res) => {
   const [url] = req.body;
   res.json({ success: true, url: url || '' });
 });
