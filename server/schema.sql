@@ -112,3 +112,20 @@ CREATE TABLE IF NOT EXISTS deputies (
   role        INTEGER NOT NULL,
   expires_at  TEXT                             -- NULL이면 만료 없음
 );
+
+-- ── 감사 로그 ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  action      TEXT NOT NULL,   -- LOGIN | CREATE | SAVE | SUBMIT | REVIEW | APPROVE | REJECT | REVOKE | DELETE | BATCH_APPROVE | BATCH_REVOKE | PASSWORD_CHANGE | USER_UPDATE
+  target_type TEXT,            -- record | user | auth
+  target_id   TEXT,            -- record_id 또는 user_id
+  factory_id  TEXT,
+  user_id     TEXT NOT NULL,
+  user_name   TEXT,
+  detail      TEXT,            -- JSON: { note, before, after 등 }
+  created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_factory ON audit_logs(factory_id);
+CREATE INDEX IF NOT EXISTS idx_audit_user    ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);

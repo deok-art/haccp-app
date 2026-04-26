@@ -1,5 +1,6 @@
 const express = require('express');
 const { db, safeJson, now, today } = require('../db');
+const { logAudit } = require('../audit');
 const { getDatabasePath, isExplicitTestMode, isTestDbPath } = require('../test-safety');
 
 const router = express.Router();
@@ -100,6 +101,7 @@ router.post('/updateUserInfo', (req, res) => {
     `UPDATE users SET name=?, factory_roles=?, factory_deputies=?, rank=?, is_master=? WHERE id=?`
   ).run(newName, JSON.stringify(factoryRoles), JSON.stringify(factoryDeputies), newRank, newMaster, targetId);
 
+  logAudit('USER_UPDATE', 'user', targetId, null, caller, { updatedFields: Object.keys(updates) });
   res.json({ success: true });
 });
 

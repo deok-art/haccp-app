@@ -3,6 +3,7 @@ const bcrypt    = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 const { db }    = require('../db');
 const { requireAuth } = require('../middleware/session');
+const { logAudit }    = require('../audit');
 
 const router = express.Router();
 
@@ -58,6 +59,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   };
 
   req.session.user = userInfo;
+  logAudit('LOGIN', 'auth', user.id, null, userInfo, null);
   res.json({ success: true, mustChangePw: false, userInfo });
 });
 
@@ -78,6 +80,7 @@ router.post('/updatePassword', requireAuth, async (req, res) => {
 
   const hash = await bcrypt.hash(plainPw, 12);
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
+  logAudit('PASSWORD_CHANGE', 'user', id, null, req.session.user, null);
   res.json({ success: true });
 });
 

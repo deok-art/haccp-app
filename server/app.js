@@ -26,6 +26,7 @@ function createApp() {
 
   const protected_ = express.Router();
   protected_.use(requireAuth);
+  protected_.use(require('./routes/audit'));
   protected_.use(require('./routes/data'));
   protected_.use(require('./routes/calendar'));
   protected_.use(require('./routes/records'));

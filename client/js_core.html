@@ -481,6 +481,13 @@ function enterFactory(factoryId) {
     else                                                  userMgmtBtn.classList.add('hidden');
   }
 
+  // 감사로그 버튼: 마스터만 표시
+  var auditLogBtn = document.getElementById('audit-log-btn');
+  if (auditLogBtn) {
+    if (state.user.isMaster) auditLogBtn.classList.remove('hidden');
+    else                     auditLogBtn.classList.add('hidden');
+  }
+
   // 공장 전환 버튼 처리
   var factory     = state.factories.find(function(f) { return f.id === factoryId; });
   var factoryName = factory ? factory.name : factoryId;

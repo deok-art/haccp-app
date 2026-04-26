@@ -1,5 +1,6 @@
 const express = require('express');
 const { db, safeJson, now, today } = require('../db');
+const { logAudit } = require('../audit');
 
 const router = express.Router();
 
@@ -189,6 +190,7 @@ router.post('/createNewLog', (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, '미작성', ?, ?, ?)`
   ).run(recordId, logId, title, targetDate, writerId, writerName, targetDate || '', factoryId, now(), now());
 
+  logAudit('CREATE', 'record', recordId, factoryId, caller, { logId, date: targetDate });
   res.json({ success: true, recordId });
 });
 
@@ -235,6 +237,7 @@ router.post('/saveFormData', (req, res) => {
      WHERE record_id = ?`
   ).run(JSON.stringify(normalizedData), defectInfo || '', writerId, writerName, now(), recordId);
 
+  logAudit('SAVE', 'record', recordId, rec.factory_id, caller, { logId: rec.log_id });
   res.json({ success: true });
 });
 
@@ -324,6 +327,7 @@ router.post('/processRecordAction', (req, res) => {
   const errMsg = handler();
   if (errMsg) return res.json({ success: false, message: errMsg });
 
+  logAudit(action, 'record', recordId, rec.factory_id, caller, { before: STATUS });
   res.json({ success: true });
 });
 
@@ -340,6 +344,7 @@ router.post('/deleteRecord', (req, res) => {
   }
 
   db.prepare('DELETE FROM records WHERE record_id = ?').run(recordId);
+  logAudit('DELETE', 'record', recordId, rec.factory_id, req.session.user, { logId: rec.log_id, date: rec.date });
   res.json({ success: true });
 });
 
@@ -364,10 +369,12 @@ router.post('/batchActionByIds', (req, res) => {
         if (!['검토완료', '작성완료'].includes(rec.status)) { results.push({ id, ok: false, msg: '상태 불일치' }); continue; }
         db.prepare(`UPDATE records SET status='승인완료', approver_id=?, approver_name=?, approver_date=?, updated_at=? WHERE record_id=?`)
           .run(caller.id, caller.name, rec.date, n, id);
+        logAudit('BATCH_APPROVE', 'record', id, rec.factory_id, caller, { before: rec.status });
         results.push({ id, ok: true });
       } else if (action === 'REVOKE') {
         db.prepare(`UPDATE records SET status='작성완료', reviewer_id='', reviewer_name='', reviewer_date='', approver_id='', approver_name='', approver_date='', updated_at=? WHERE record_id=?`)
           .run(n, id);
+        logAudit('BATCH_REVOKE', 'record', id, rec.factory_id, caller, { before: rec.status });
         results.push({ id, ok: true });
       } else {
         results.push({ id, ok: false, msg: '지원하지 않는 배치 액션' });

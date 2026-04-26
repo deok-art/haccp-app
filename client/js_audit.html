@@ -1,0 +1,184 @@
+<script>
+// ════════════════════════════════════════════════════════
+//  js_audit.html — 감사 로그 (마스터 전용)
+// ════════════════════════════════════════════════════════
+
+var _auditPage  = 1;
+var _auditTotal = 0;
+var _auditLimit = 20;
+var _auditFilter = {};
+
+function openAuditLog() {
+  _auditPage   = 1;
+  _auditFilter = {};
+  openModal('감사 로그', _buildAuditFilterHtml() + '<div id="audit-table-wrap"><p style="text-align:center;padding:20px;color:#888;">불러오는 중...</p></div>');
+  _loadAuditLogs();
+}
+
+function _buildAuditFilterHtml() {
+  var actions = ['', 'LOGIN', 'CREATE', 'SAVE', 'SUBMIT', 'REVIEW', 'APPROVE', 'REJECT', 'REVOKE',
+                 'DELETE', 'BATCH_APPROVE', 'BATCH_REVOKE', 'PASSWORD_CHANGE', 'USER_UPDATE'];
+  var actionOpts = actions.map(function(a) {
+    return '<option value="' + a + '">' + (a || '전체 액션') + '</option>';
+  }).join('');
+
+  var today = new Date().toISOString().slice(0, 10);
+  var monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+  return '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:flex-end;">' +
+    '<div>' +
+      '<label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">사용자 ID</label>' +
+      '<input id="af-user" type="text" placeholder="user_id" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px;width:90px;" />' +
+    '</div>' +
+    '<div>' +
+      '<label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">액션</label>' +
+      '<select id="af-action" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px;">' + actionOpts + '</select>' +
+    '</div>' +
+    '<div>' +
+      '<label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">시작일</label>' +
+      '<input id="af-from" type="date" value="' + monthAgo + '" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px;" />' +
+    '</div>' +
+    '<div>' +
+      '<label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">종료일</label>' +
+      '<input id="af-to" type="date" value="' + today + '" style="border:1px solid #ddd;border-radius:6px;padding:5px 8px;font-size:12px;" />' +
+    '</div>' +
+    '<button onclick="_applyAuditFilter()" style="background:var(--primary);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;">검색</button>' +
+  '</div>';
+}
+
+function _applyAuditFilter() {
+  _auditPage = 1;
+  _auditFilter = {
+    user_id:  document.getElementById('af-user').value.trim() || undefined,
+    action:   document.getElementById('af-action').value || undefined,
+    dateFrom: document.getElementById('af-from').value || undefined,
+    dateTo:   document.getElementById('af-to').value || undefined,
+  };
+  _loadAuditLogs();
+}
+
+function _loadAuditLogs() {
+  document.getElementById('audit-table-wrap').innerHTML =
+    '<p style="text-align:center;padding:20px;color:#888;">불러오는 중...</p>';
+
+  var params = Object.assign({ page: _auditPage, limit: _auditLimit }, _auditFilter);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) { document.getElementById('audit-table-wrap').innerHTML = '<p style="color:red;padding:12px;">오류: ' + (res.message || '알 수 없음') + '</p>'; return; }
+      _auditTotal = res.total || 0;
+      _renderAuditTable(res.logs || []);
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('audit-table-wrap').innerHTML = '<p style="color:red;padding:12px;">오류: ' + e.message + '</p>';
+    })
+    .getAuditLogs(params);
+}
+
+function _renderAuditTable(logs) {
+  var totalPages = Math.max(1, Math.ceil(_auditTotal / _auditLimit));
+
+  var html = '<div style="font-size:11px;color:#888;margin-bottom:8px;">총 ' + _auditTotal + '건 · ' + _auditPage + '/' + totalPages + '페이지</div>';
+
+  if (!logs.length) {
+    html += '<p style="text-align:center;padding:20px;color:#aaa;">해당 조건의 로그가 없습니다.</p>';
+  } else {
+    html += '<div style="overflow-x:auto;">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+      '<thead><tr style="background:#f5f7fa;text-align:left;">' +
+        '<th style="padding:7px 8px;border-bottom:1px solid #e8e8e8;white-space:nowrap;">시간</th>' +
+        '<th style="padding:7px 8px;border-bottom:1px solid #e8e8e8;">사용자</th>' +
+        '<th style="padding:7px 8px;border-bottom:1px solid #e8e8e8;">공장</th>' +
+        '<th style="padding:7px 8px;border-bottom:1px solid #e8e8e8;">액션</th>' +
+        '<th style="padding:7px 8px;border-bottom:1px solid #e8e8e8;">대상</th>' +
+        '<th style="padding:7px 8px;border-bottom:1px solid #e8e8e8;">상세(note)</th>' +
+        '<th style="padding:7px 8px;border-bottom:1px solid #e8e8e8;"></th>' +
+      '</tr></thead><tbody>';
+
+    logs.forEach(function(log) {
+      var detail = {};
+      try { detail = log.detail ? JSON.parse(log.detail) : {}; } catch(_) {}
+      var noteText = detail.note || '';
+      var detailSummary = noteText || (log.detail ? log.detail.slice(0, 40) : '-');
+
+      html += '<tr style="border-bottom:1px solid #f0f0f0;" id="audit-row-' + log.id + '">' +
+        '<td style="padding:7px 8px;white-space:nowrap;color:#666;">' + (log.created_at || '').slice(0, 16) + '</td>' +
+        '<td style="padding:7px 8px;">' + _esc(log.user_name || '') + ' <span style="color:#aaa;font-size:10px;">(' + _esc(log.user_id) + ')</span></td>' +
+        '<td style="padding:7px 8px;">' + _esc(log.factory_id || '-') + '</td>' +
+        '<td style="padding:7px 8px;"><span style="background:' + _actionColor(log.action) + ';color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">' + _esc(log.action) + '</span></td>' +
+        '<td style="padding:7px 8px;font-size:11px;color:#666;">' + _esc(log.target_id || '-') + '</td>' +
+        '<td style="padding:7px 8px;" id="audit-detail-' + log.id + '">' +
+          '<span style="color:#666;">' + _esc(detailSummary) + '</span>' +
+        '</td>' +
+        '<td style="padding:7px 8px;white-space:nowrap;">' +
+          '<button onclick="_editAuditNote(' + log.id + ',`' + _esc(noteText).replace(/`/g, '\\`') + '`)" style="font-size:11px;padding:2px 7px;border:1px solid #ddd;border-radius:4px;cursor:pointer;margin-right:4px;">편집</button>' +
+          '<button onclick="_deleteAuditLog(' + log.id + ')" style="font-size:11px;padding:2px 7px;border:1px solid #fcc;color:#c0392b;border-radius:4px;cursor:pointer;">삭제</button>' +
+        '</td>' +
+      '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+  }
+
+  // 페이지네이션
+  html += '<div style="display:flex;justify-content:center;gap:8px;margin-top:12px;">';
+  if (_auditPage > 1) html += '<button onclick="_auditGoPage(' + (_auditPage - 1) + ')" style="border:1px solid #ddd;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;">이전</button>';
+  html += '<span style="line-height:28px;font-size:12px;color:#666;">' + _auditPage + ' / ' + totalPages + '</span>';
+  if (_auditPage < totalPages) html += '<button onclick="_auditGoPage(' + (_auditPage + 1) + ')" style="border:1px solid #ddd;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;">다음</button>';
+  html += '</div>';
+
+  document.getElementById('audit-table-wrap').innerHTML = html;
+}
+
+function _auditGoPage(page) {
+  _auditPage = page;
+  _loadAuditLogs();
+}
+
+function _editAuditNote(id, currentNote) {
+  var cell = document.getElementById('audit-detail-' + id);
+  cell.innerHTML =
+    '<textarea id="audit-note-' + id + '" style="width:100%;font-size:11px;border:1px solid #ccc;border-radius:4px;padding:4px;resize:vertical;" rows="2">' +
+    _esc(currentNote) + '</textarea>' +
+    '<div style="margin-top:4px;display:flex;gap:6px;">' +
+      '<button onclick="_saveAuditNote(' + id + ')" style="font-size:11px;padding:2px 8px;background:var(--primary);color:#fff;border:none;border-radius:4px;cursor:pointer;">저장</button>' +
+      '<button onclick="_loadAuditLogs()" style="font-size:11px;padding:2px 8px;border:1px solid #ddd;border-radius:4px;cursor:pointer;">취소</button>' +
+    '</div>';
+}
+
+function _saveAuditNote(id) {
+  var note = document.getElementById('audit-note-' + id).value;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) { alert(res.message || '저장 실패'); return; }
+      _loadAuditLogs();
+    })
+    .withFailureHandler(function(e) { alert('오류: ' + e.message); })
+    .updateAuditLog({ id: id, detail: { note: note } });
+}
+
+function _deleteAuditLog(id) {
+  if (!confirm('이 로그 항목을 삭제하시겠습니까?')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) { alert(res.message || '삭제 실패'); return; }
+      _loadAuditLogs();
+    })
+    .withFailureHandler(function(e) { alert('오류: ' + e.message); })
+    .deleteAuditLog({ id: id });
+}
+
+function _actionColor(action) {
+  var map = {
+    LOGIN: '#3498db', CREATE: '#27ae60', SAVE: '#2ecc71',
+    SUBMIT: '#16a085', REVIEW: '#8e44ad', APPROVE: '#2980b9',
+    REJECT: '#e67e22', REVOKE: '#e74c3c', DELETE: '#c0392b',
+    BATCH_APPROVE: '#1abc9c', BATCH_REVOKE: '#e74c3c',
+    PASSWORD_CHANGE: '#f39c12', USER_UPDATE: '#7f8c8d',
+  };
+  return map[action] || '#95a5a6';
+}
+
+function _esc(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>

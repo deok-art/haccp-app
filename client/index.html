@@ -68,6 +68,10 @@
           style="background:rgba(44,62,80,0.08);color:var(--primary);border:1px solid rgba(44,62,80,0.15);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-right:4px;">
           사용자관리
         </button>
+        <button id="audit-log-btn" class="hidden" onclick="openAuditLog()"
+          style="background:rgba(44,62,80,0.08);color:var(--primary);border:1px solid rgba(44,62,80,0.15);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-right:4px;">
+          감사로그
+        </button>
         <button id="my-info-btn" onclick="openMyInfo()" class="btn-info">내정보</button>
         <button onclick="handleLogout()" class="btn-logout">로그아웃</button>
       </div>
@@ -265,6 +269,7 @@
 <?!= include('js_form_engine'); ?>
 <?!= include('js_print_template'); ?>
 <?!= include('js_print'); ?>
+<?!= include('js_audit'); ?>
 
 </body>
 </html>
