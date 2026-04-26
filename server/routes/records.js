@@ -4,6 +4,15 @@ const { db, safeJson, now, today } = require('../db');
 const router = express.Router();
 
 // ── 헬퍼 ────────────────────────────────────────────────
+function getCallerRole(user, factoryId) {
+  if (user.isMaster) return 3;
+  return parseInt((user.factoryRoles || {})[factoryId] || 0, 10);
+}
+
+function hasFactoryAccess(user, factoryId, minRole = 1) {
+  return getCallerRole(user, factoryId) >= minRole;
+}
+
 function getRecord(recordId) {
   return db.prepare('SELECT * FROM records WHERE record_id = ?').get(recordId);
 }
@@ -152,7 +161,13 @@ function getExistingPeriodRecord(logId, factoryId, targetDate, interval) {
 
 // ── POST /api/createNewLog ───────────────────────────────
 router.post('/createNewLog', (req, res) => {
-  const [logId, title, writerId, writerName, targetDate, factoryId] = req.body;
+  const [logId, title, , , targetDate, factoryId] = req.body;
+  const caller = req.session.user;
+  if (!hasFactoryAccess(caller, factoryId)) {
+    return res.json({ success: false, message: '권한이 없습니다.' });
+  }
+  const writerId = caller.id;
+  const writerName = caller.name;
   const template = getTemplate(logId);
   const interval = template ? template.interval : 'daily';
 
@@ -182,6 +197,9 @@ router.post('/saveDraft', (req, res) => {
   const [recordId, , dataJson] = req.body;
   const rec = getRecord(recordId);
   if (!rec) return res.json({ success: false, message: '레코드를 찾을 수 없습니다.' });
+  if (!hasFactoryAccess(req.session.user, rec.factory_id)) {
+    return res.json({ success: false, message: '권한이 없습니다.' });
+  }
   const normalizedData = normalizeSubmittedData(dataJson);
   if (!normalizedData) return res.json({ success: false, message: '저장 데이터 형식이 올바르지 않습니다.' });
 
@@ -195,9 +213,13 @@ router.post('/saveDraft', (req, res) => {
 // ── POST /api/saveFormData ──────────────────────────────
 router.post('/saveFormData', (req, res) => {
   const [recordId, logId, dataJson, defectInfo] = req.body;
-  const { id: writerId, name: writerName } = req.session.user;
+  const caller = req.session.user;
   const rec = getRecord(recordId);
   if (!rec) return res.json({ success: false, message: '레코드를 찾을 수 없습니다.' });
+  if (!hasFactoryAccess(caller, rec.factory_id)) {
+    return res.json({ success: false, message: '권한이 없습니다.' });
+  }
+  const { id: writerId, name: writerName } = caller;
   const normalizedData = normalizeSubmittedData(dataJson);
   if (!normalizedData) return res.json({ success: false, message: '제출 데이터 형식이 올바르지 않습니다.' });
 
@@ -218,9 +240,16 @@ router.post('/saveFormData', (req, res) => {
 
 // ── POST /api/processRecordAction ──────────────────────
 router.post('/processRecordAction', (req, res) => {
-  const [recordId, action, userId, userName, userRole, actionDate] = req.body;
+  const [recordId, action, , , , actionDate] = req.body;
+  const caller = req.session.user;
   const rec = getRecord(recordId);
   if (!rec) return res.json({ success: false, message: '레코드를 찾을 수 없습니다.' });
+  if (!hasFactoryAccess(caller, rec.factory_id)) {
+    return res.json({ success: false, message: '권한이 없습니다.' });
+  }
+  const userId   = caller.id;
+  const userName = caller.name;
+  const userRole = getCallerRole(caller, rec.factory_id);
 
   if (actionDate && !/^\d{4}-\d{2}-\d{2}$/.test(actionDate)) {
     return res.json({ success: false, message: '?? ??? ???? ????. YYYY-MM-DD ???? ??????.' });
@@ -303,6 +332,9 @@ router.post('/deleteRecord', (req, res) => {
   const [recordId] = req.body;
   const rec = getRecord(recordId);
   if (!rec) return res.json({ success: false, message: '레코드를 찾을 수 없습니다.' });
+  if (!hasFactoryAccess(req.session.user, rec.factory_id)) {
+    return res.json({ success: false, message: '권한이 없습니다.' });
+  }
   if (!['미작성', '작성중', '작성완료'].includes(rec.status)) {
     return res.json({ success: false, message: '검토완료 이상은 삭제할 수 없습니다.' });
   }
@@ -313,7 +345,7 @@ router.post('/deleteRecord', (req, res) => {
 
 // ── POST /api/batchActionByIds ──────────────────────────
 router.post('/batchActionByIds', (req, res) => {
-  const [ids, action, userName, userRole] = req.body;
+  const [ids, action] = req.body;
   if (!Array.isArray(ids) || !ids.length) return res.json({ success: false, message: '대상 없음.' });
 
   const n = now();
@@ -324,12 +356,14 @@ router.post('/batchActionByIds', (req, res) => {
     for (const id of idList) {
       const rec = getRecord(id);
       if (!rec) { results.push({ id, ok: false, msg: '없는 레코드' }); continue; }
+      if (!hasFactoryAccess(caller, rec.factory_id)) { results.push({ id, ok: false, msg: '권한 없음' }); continue; }
 
+      const userRole = getCallerRole(caller, rec.factory_id);
       if (action === 'APPROVE') {
         if (userRole < 3) { results.push({ id, ok: false, msg: '권한 없음' }); continue; }
         if (!['검토완료', '작성완료'].includes(rec.status)) { results.push({ id, ok: false, msg: '상태 불일치' }); continue; }
         db.prepare(`UPDATE records SET status='승인완료', approver_id=?, approver_name=?, approver_date=?, updated_at=? WHERE record_id=?`)
-          .run(caller.id, userName, rec.date, n, id);
+          .run(caller.id, caller.name, rec.date, n, id);
         results.push({ id, ok: true });
       } else if (action === 'REVOKE') {
         db.prepare(`UPDATE records SET status='작성완료', reviewer_id='', reviewer_name='', reviewer_date='', approver_id='', approver_name='', approver_date='', updated_at=? WHERE record_id=?`)
@@ -347,7 +381,13 @@ router.post('/batchActionByIds', (req, res) => {
 
 // ── POST /api/createTodayDailyLogsBatch ────────────────
 router.post('/createTodayDailyLogsBatch', (req, res) => {
-  const [factoryId, writerId, writerName, forceLogIds, selectedLogIds] = req.body;
+  const [factoryId, , , forceLogIds, selectedLogIds] = req.body;
+  const caller = req.session.user;
+  if (!hasFactoryAccess(caller, factoryId)) {
+    return res.json({ success: false, message: '권한이 없습니다.' });
+  }
+  const writerId   = caller.id;
+  const writerName = caller.name;
   const dateStr = today();
   const forceSet    = new Set(Array.isArray(forceLogIds)    ? forceLogIds    : []);
   const selectedSet = new Set(Array.isArray(selectedLogIds) ? selectedLogIds : []);
