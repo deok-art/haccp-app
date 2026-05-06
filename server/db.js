@@ -28,6 +28,41 @@ function ensureColumn(table, column, sqlTypeWithDefault) {
 ensureColumn('records', 'writer_date', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('records', 'reviewer_date', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('records', 'approver_date', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('users', 'department', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('log_templates', 'responsible_department', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('log_templates', 'responsible_departments', "TEXT NOT NULL DEFAULT '[]'");
+
+// log_templates: TEXT PK → surrogate int PK + UNIQUE(factory_id, log_id)
+(function migrateLogTemplates() {
+  const cols = db.prepare('PRAGMA table_info(log_templates)').all();
+  if (cols.some(c => c.name === 'id')) return;
+  db.transaction(() => {
+    db.exec('ALTER TABLE log_templates RENAME TO log_templates_old');
+    db.exec(`
+      CREATE TABLE log_templates (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        log_id     TEXT NOT NULL,
+        title      TEXT NOT NULL DEFAULT '',
+        doc_no     TEXT NOT NULL DEFAULT '' UNIQUE,
+        revision   TEXT NOT NULL DEFAULT 'rev.0',
+        factory_id TEXT NOT NULL DEFAULT 'pb2',
+        responsible_department TEXT NOT NULL DEFAULT '',
+        responsible_departments TEXT NOT NULL DEFAULT '[]',
+        interval   TEXT NOT NULL DEFAULT 'daily',
+        meta_info  TEXT NOT NULL DEFAULT '{}',
+        approval   TEXT NOT NULL DEFAULT '[]',
+        items      TEXT NOT NULL DEFAULT '[]',
+        UNIQUE(factory_id, log_id)
+      )
+    `);
+    db.exec(`
+      INSERT INTO log_templates (log_id, title, doc_no, revision, factory_id, responsible_department, responsible_departments, interval, meta_info, approval, items)
+        SELECT log_id, title, doc_no, revision, factory_id, responsible_department, responsible_departments, interval, meta_info, approval, items
+        FROM log_templates_old
+    `);
+    db.exec('DROP TABLE log_templates_old');
+  })();
+})();
 
 /**
  * JSON 문자열을 안전하게 파싱한다. 실패 시 fallback 반환.
@@ -55,4 +90,9 @@ function today() {
   return db.prepare("SELECT date('now','localtime') AS d").get().d;
 }
 
-module.exports = { db, DB_PATH, UPLOAD_DIR, safeJson, now, today };
+/** 공장 목록 [{ id, name }, ...] */
+function getFactories() {
+  return db.prepare('SELECT factory_id as id, name FROM factories ORDER BY factory_id').all();
+}
+
+module.exports = { db, DB_PATH, UPLOAD_DIR, safeJson, now, today, getFactories };

@@ -4,29 +4,19 @@ const rateLimit = require('express-rate-limit');
 const { db }    = require('../db');
 const { requireAuth } = require('../middleware/session');
 const { logAudit }    = require('../audit');
+const { deriveTitle } = require('../lib/utils/user');
 
 const router = express.Router();
 
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: '로그인 시도 횟수 초과입니다. 15분 후 다시 시도하세요.' }
-});
-
-function deriveTitle(user) {
-  if (!user) return '';
-  const deps = JSON.parse(user.factory_deputies || '{}');
-  for (const fid of Object.keys(deps)) {
-    if (deps[fid] !== null && deps[fid] !== undefined) return 'HACCP팀장 대행';
-  }
-  const roles = JSON.parse(user.factory_roles || '{}');
-  for (const fid of Object.keys(roles)) {
-    if (roles[fid] >= 3) return 'HACCP팀장';
-  }
-  return user.rank || '';
-}
+const loginLimiter = process.env.NODE_ENV === 'test'
+  ? (_req, _res, next) => next()
+  : rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 10,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { success: false, message: '로그인 시도 횟수 초과입니다. 15분 후 다시 시도하세요.' }
+    });
 
 // POST /api/login
 router.post('/login', loginLimiter, async (req, res) => {
@@ -55,6 +45,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     isMaster:  user.is_master === 1,
     signature: user.signature || '',
     rank:      user.rank || '',
+    department: user.department || '',
     title:     deriveTitle(user),
   };
 

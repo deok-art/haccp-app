@@ -1,22 +1,10 @@
 const express = require('express');
-const { db, safeJson, now, today } = require('../db');
+const { db, safeJson, now, today, getFactories } = require('../db');
 const { logAudit } = require('../audit');
 const { getDatabasePath, isExplicitTestMode, isTestDbPath } = require('../test-safety');
+const { deriveTitle } = require('../lib/utils/user');
 
 const router = express.Router();
-
-function deriveTitle(user) {
-  if (!user) return '';
-  const deps = safeJson(user.factory_deputies, {});
-  for (const fid of Object.keys(deps)) {
-    if (deps[fid] !== null && deps[fid] !== undefined) return 'HACCP팀장 대행';
-  }
-  const roles = safeJson(user.factory_roles, {});
-  for (const fid of Object.keys(roles)) {
-    if (roles[fid] >= 3) return 'HACCP팀장';
-  }
-  return user.rank || '';
-}
 
 function formatUser(u) {
   return {
@@ -27,12 +15,9 @@ function formatUser(u) {
     isMaster:        u.is_master === 1,
     signature:       u.signature || '',
     rank:            u.rank || '',
+    department:      u.department || '',
     title:           deriveTitle(u),
   };
-}
-
-function getFactories() {
-  return db.prepare('SELECT factory_id as id, name FROM factories ORDER BY factory_id').all();
 }
 
 // POST /api/getUserList
@@ -95,11 +80,21 @@ router.post('/updateUserInfo', (req, res) => {
 
   const newName   = updates.name  !== undefined ? updates.name  : target.name;
   const newRank   = updates.rank  !== undefined ? updates.rank  : target.rank;
+  const newDepartment = updates.department !== undefined ? String(updates.department || '').trim() : target.department;
   const newMaster = updates.isMaster !== undefined ? (updates.isMaster ? 1 : 0) : target.is_master;
 
   db.prepare(
-    `UPDATE users SET name=?, factory_roles=?, factory_deputies=?, rank=?, is_master=? WHERE id=?`
-  ).run(newName, JSON.stringify(factoryRoles), JSON.stringify(factoryDeputies), newRank, newMaster, targetId);
+    `UPDATE users SET name=?, factory_roles=?, factory_deputies=?, rank=?, department=?, is_master=? WHERE id=?`
+  ).run(newName, JSON.stringify(factoryRoles), JSON.stringify(factoryDeputies), newRank, newDepartment, newMaster, targetId);
+
+  if (caller.id === targetId) {
+    req.session.user.name = newName;
+    req.session.user.rank = newRank;
+    req.session.user.department = newDepartment;
+    req.session.user.factoryRoles = factoryRoles;
+    req.session.user.factoryDeputies = factoryDeputies;
+    req.session.user.isMaster = newMaster === 1;
+  }
 
   logAudit('USER_UPDATE', 'user', targetId, null, caller, { updatedFields: Object.keys(updates) });
   res.json({ success: true });

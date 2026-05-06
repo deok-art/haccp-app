@@ -1,17 +1,10 @@
 const { db, now } = require('./db');
+const { filterAccessibleTemplates } = require('./template-access');
+const { createUtcDate, formatUtcDate, getWeekBounds, getQuarterBounds } = require('./lib/utils/date');
 
 const HOLIDAY_API_BASE = 'https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo';
 const MISSING_STATUSES = new Set(['미작성', '작성중']);
 const COMPLETED_OR_PENDING_STATUSES = new Set(['작성완료', '검토완료', '승인완료']);
-
-function createUtcDate(dateStr) {
-  const [year, month, day] = String(dateStr || '').split('-').map(Number);
-  return new Date(Date.UTC(year, (month || 1) - 1, day || 1));
-}
-
-function formatUtcDate(date) {
-  return date.toISOString().slice(0, 10);
-}
 
 function toMonthKey(dateStr) {
   return String(dateStr || '').slice(0, 7);
@@ -25,20 +18,6 @@ function fromLocDate(locdate) {
   const text = String(locdate || '');
   if (text.length !== 8) return '';
   return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
-}
-
-function getWeekBounds(dateStr) {
-  const date = createUtcDate(dateStr);
-  const day = date.getUTCDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(date);
-  monday.setUTCDate(monday.getUTCDate() + diff);
-  const sunday = new Date(monday);
-  sunday.setUTCDate(sunday.getUTCDate() + 6);
-  return {
-    from: formatUtcDate(monday),
-    to: formatUtcDate(sunday),
-  };
 }
 
 function listDates(fromDate, toDate) {
@@ -68,6 +47,43 @@ function listMonthWeeks(monthKey) {
       seen.add(week.from);
       return true;
     });
+}
+
+function getIsoWeekNumber(dateStr) {
+  const date = createUtcDate(dateStr);
+  const dayOfWeek = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayOfWeek);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+}
+
+function getBiweeklyStartDate(dateStr) {
+  const weekStart = getWeekBounds(dateStr).from;
+  const weekNum = getIsoWeekNumber(weekStart);
+  if (weekNum % 2 === 1) return weekStart;
+  const prev = createUtcDate(weekStart);
+  prev.setUTCDate(prev.getUTCDate() - 7);
+  return formatUtcDate(prev);
+}
+
+function listBiweeklyPeriods(monthKey) {
+  const weeks = listMonthWeeks(monthKey);
+  const seen = new Set();
+  const periods = [];
+  weeks.forEach(week => {
+    const periodStart = getBiweeklyStartDate(week.from);
+    if (seen.has(periodStart)) return;
+    seen.add(periodStart);
+    const end = createUtcDate(periodStart);
+    end.setUTCDate(end.getUTCDate() + 13);
+    periods.push({ from: periodStart, to: formatUtcDate(end) });
+  });
+  return periods;
+}
+
+function isSummerMonth(monthKey) {
+  const month = parseInt(String(monthKey || '').slice(5, 7), 10);
+  return month >= 4 && month <= 9;
 }
 
 function normalizeWeekdayMask(maskText) {
@@ -389,6 +405,7 @@ async function buildCalendarSummary(factoryIds, todayStr, database = db) {
   ensureFactoryCalendarDefaults(database);
   const currentWeek = getWeekBounds(todayStr);
   const currentMonth = toMonthKey(todayStr);
+  const currentQuarter = getQuarterBounds(todayStr);
   await ensureNationalHolidaysForYear(parseInt(todayStr.slice(0, 4), 10), database);
 
   const summary = {};
@@ -396,6 +413,7 @@ async function buildCalendarSummary(factoryIds, todayStr, database = db) {
     const todayDecision = getCalendarDecision(factoryId, todayStr, database);
     const weekDates = listDates(currentWeek.from, currentWeek.to);
     const monthDates = listMonthDates(currentMonth);
+    const quarterDates = listDates(currentQuarter.from, currentQuarter.to);
     summary[factoryId] = {
       today: {
         date: todayStr,
@@ -411,6 +429,11 @@ async function buildCalendarSummary(factoryIds, todayStr, database = db) {
       currentMonth: {
         monthKey: currentMonth,
         hasWorkday: monthDates.some(date => getCalendarDecision(factoryId, date, database).isWorkday),
+      },
+      currentQuarter: {
+        from: currentQuarter.from,
+        to: currentQuarter.to,
+        hasWorkday: quarterDates.some(date => getCalendarDecision(factoryId, date, database).isWorkday),
       },
     };
   });
@@ -441,17 +464,19 @@ function isSatisfiedStatus(status) {
   return COMPLETED_OR_PENDING_STATUSES.has(status);
 }
 
-async function getMissingDashboard(factoryId, monthKey, database = db) {
+async function getMissingDashboard(factoryId, monthKey, database = db, user = null) {
   ensureFactoryCalendarDefaults(database);
   await ensureNationalHolidaysForMonth(monthKey, database);
 
   const [monthStart, monthEnd] = [monthKey + '-01', listMonthDates(monthKey).slice(-1)[0]];
-  const templates = database.prepare(`
-    SELECT log_id, title, interval, factory_id
+  const visibleQuarter = getQuarterBounds(monthStart);
+  let templates = database.prepare(`
+    SELECT log_id, title, interval, meta_info, factory_id, responsible_department, responsible_departments
     FROM log_templates
     WHERE factory_id = ?
     ORDER BY interval, title
   `).all(factoryId);
+  if (user) templates = filterAccessibleTemplates(database, user, templates);
 
   const monthDates = listMonthDates(monthKey);
   const monthWeeks = listMonthWeeks(monthKey);
@@ -465,10 +490,22 @@ async function getMissingDashboard(factoryId, monthKey, database = db) {
       )
     ORDER BY date DESC, created_at DESC
   `).all(factoryId, monthKey, monthStart, monthEnd);
+  const quarterlyRows = database.prepare(`
+    SELECT record_id, log_id, title, date, status, factory_id, created_at
+    FROM records
+    WHERE factory_id = ?
+      AND date >= ? AND date <= ?
+      AND log_id IN (
+        SELECT log_id FROM log_templates WHERE factory_id = ? AND interval = 'quarterly'
+      )
+    ORDER BY date DESC, created_at DESC
+  `).all(factoryId, visibleQuarter.from, monthEnd, factoryId);
 
   const dailyMap = collectLatestPeriodRecords(rows, row => `${row.log_id}::${row.date}`);
   const weeklyMap = collectLatestPeriodRecords(rows, row => `${row.log_id}::${getWeekBounds(row.date).from}`);
+  const biweeklyMap = collectLatestPeriodRecords(rows, row => `${row.log_id}::${getBiweeklyStartDate(row.date)}`);
   const monthlyMap = collectLatestPeriodRecords(rows, row => `${row.log_id}::${toMonthKey(row.date)}`);
+  const quarterlyMap = collectLatestPeriodRecords(quarterlyRows, row => `${row.log_id}::${getQuarterBounds(row.date).from}`);
 
   const items = [];
   templates.forEach(template => {
@@ -531,6 +568,105 @@ async function getMissingDashboard(factoryId, monthKey, database = db) {
         recordId: rec ? rec.record_id : '',
         reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
       });
+      return;
+    }
+
+    if (template.interval === 'quarterly') {
+      const quarter = getQuarterBounds(monthStart);
+      const quarterDates = listDates(quarter.from, quarter.to);
+      const monthQuarterDates = quarterDates.filter(date => toMonthKey(date) === monthKey);
+      const hasWorkday = monthQuarterDates.some(date => getCalendarDecision(factoryId, date, database).isWorkday);
+      if (!hasWorkday) return;
+      if (monthKey !== toMonthKey(quarter.to)) return;
+      const rec = quarterlyMap[`${template.log_id}::${quarter.from}`];
+      if (rec && isSatisfiedStatus(rec.status)) return;
+      items.push({
+        logId: template.log_id,
+        title: template.title,
+        interval: 'quarterly',
+        periodKey: quarter.from,
+        dueDate: quarter.to,
+        status: rec ? rec.status : '',
+        recordId: rec ? rec.record_id : '',
+        reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
+        rangeLabel: `${quarter.from} ~ ${quarter.to}`,
+      });
+      return;
+    }
+
+    if (template.interval === 'biweekly') {
+      listBiweeklyPeriods(monthKey).forEach(period => {
+        const periodDates = listDates(period.from, period.to).filter(date => toMonthKey(date) === monthKey);
+        const hasWorkday = periodDates.some(date => getCalendarDecision(factoryId, date, database).isWorkday);
+        if (!hasWorkday) return;
+        const rec = biweeklyMap[`${template.log_id}::${period.from}`];
+        if (rec && isSatisfiedStatus(rec.status)) return;
+        items.push({
+          logId: template.log_id,
+          title: template.title,
+          interval: 'biweekly',
+          periodKey: period.from,
+          dueDate: period.to,
+          status: rec ? rec.status : '',
+          recordId: rec ? rec.record_id : '',
+          reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
+          rangeLabel: `${period.from} ~ ${period.to}`,
+        });
+      });
+      return;
+    }
+
+    if (template.interval === 'seasonal') {
+      const metaInfo = JSON.parse(template.meta_info || '{}');
+      const summer = isSummerMonth(monthKey);
+      const effectiveInterval = summer
+        ? (metaInfo.summerInterval || 'weekly')
+        : (metaInfo.winterInterval || 'biweekly');
+
+      if (effectiveInterval === 'weekly') {
+        monthWeeks.forEach(week => {
+          const hasWorkday = listDates(week.from, week.to).some(date => {
+            if (toMonthKey(date) !== monthKey) return false;
+            return getCalendarDecision(factoryId, date, database).isWorkday;
+          });
+          if (!hasWorkday) return;
+          const rec = weeklyMap[`${template.log_id}::${week.from}`];
+          if (rec && isSatisfiedStatus(rec.status)) return;
+          items.push({
+            logId: template.log_id,
+            title: template.title,
+            interval: 'seasonal',
+            effectiveInterval: 'weekly',
+            periodKey: week.from,
+            dueDate: week.to,
+            status: rec ? rec.status : '',
+            recordId: rec ? rec.record_id : '',
+            reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
+            rangeLabel: `${week.from} ~ ${week.to}`,
+          });
+        });
+      } else {
+        listBiweeklyPeriods(monthKey).forEach(period => {
+          const periodDates = listDates(period.from, period.to).filter(date => toMonthKey(date) === monthKey);
+          const hasWorkday = periodDates.some(date => getCalendarDecision(factoryId, date, database).isWorkday);
+          if (!hasWorkday) return;
+          const rec = biweeklyMap[`${template.log_id}::${period.from}`];
+          if (rec && isSatisfiedStatus(rec.status)) return;
+          items.push({
+            logId: template.log_id,
+            title: template.title,
+            interval: 'seasonal',
+            effectiveInterval: 'biweekly',
+            periodKey: period.from,
+            dueDate: period.to,
+            status: rec ? rec.status : '',
+            recordId: rec ? rec.record_id : '',
+            reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
+            rangeLabel: `${period.from} ~ ${period.to}`,
+          });
+        });
+      }
+      return;
     }
   });
 
@@ -557,7 +693,11 @@ module.exports = {
   getFactoryCalendarRule,
   getMissingDashboard,
   getWeekBounds,
+  getQuarterBounds,
+  getBiweeklyStartDate,
   listMonthDates,
+  listBiweeklyPeriods,
+  isSummerMonth,
   normalizeWeekdayMask,
   normalizeServiceKey,
   syncNationalHolidaysForYear,
