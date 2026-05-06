@@ -1,10 +1,13 @@
 const { db, now } = require('./db');
 const { filterAccessibleTemplates } = require('./template-access');
 const { createUtcDate, formatUtcDate, getWeekBounds, getQuarterBounds } = require('./lib/utils/date');
+const {
+  buildAlertItems,
+  isMissingStatus,
+  isSatisfiedStatus,
+} = require('./lib/calendar/strategies');
 
 const HOLIDAY_API_BASE = 'https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo';
-const MISSING_STATUSES = new Set(['미작성', '작성중']);
-const COMPLETED_OR_PENDING_STATUSES = new Set(['작성완료', '검토완료', '승인완료']);
 
 function toMonthKey(dateStr) {
   return String(dateStr || '').slice(0, 7);
@@ -456,14 +459,6 @@ function collectLatestPeriodRecords(rows, keyBuilder) {
   }, {});
 }
 
-function isMissingStatus(status) {
-  return !status || MISSING_STATUSES.has(status);
-}
-
-function isSatisfiedStatus(status) {
-  return COMPLETED_OR_PENDING_STATUSES.has(status);
-}
-
 async function getMissingDashboard(factoryId, monthKey, database = db, user = null) {
   ensureFactoryCalendarDefaults(database);
   await ensureNationalHolidaysForMonth(monthKey, database);
@@ -501,173 +496,36 @@ async function getMissingDashboard(factoryId, monthKey, database = db, user = nu
     ORDER BY date DESC, created_at DESC
   `).all(factoryId, visibleQuarter.from, monthEnd, factoryId);
 
-  const dailyMap = collectLatestPeriodRecords(rows, row => `${row.log_id}::${row.date}`);
-  const weeklyMap = collectLatestPeriodRecords(rows, row => `${row.log_id}::${getWeekBounds(row.date).from}`);
-  const biweeklyMap = collectLatestPeriodRecords(rows, row => `${row.log_id}::${getBiweeklyStartDate(row.date)}`);
-  const monthlyMap = collectLatestPeriodRecords(rows, row => `${row.log_id}::${toMonthKey(row.date)}`);
-  const quarterlyMap = collectLatestPeriodRecords(quarterlyRows, row => `${row.log_id}::${getQuarterBounds(row.date).from}`);
+  const periodMaps = {
+    daily:     collectLatestPeriodRecords(rows, row => `${row.log_id}::${row.date}`),
+    weekly:    collectLatestPeriodRecords(rows, row => `${row.log_id}::${getWeekBounds(row.date).from}`),
+    biweekly:  collectLatestPeriodRecords(rows, row => `${row.log_id}::${getBiweeklyStartDate(row.date)}`),
+    monthly:   collectLatestPeriodRecords(rows, row => `${row.log_id}::${toMonthKey(row.date)}`),
+    quarterly: collectLatestPeriodRecords(quarterlyRows, row => `${row.log_id}::${getQuarterBounds(row.date).from}`),
+  };
+
+  // 전략에 주입할 컨텍스트 — 모든 DB·factoryId 의존성을 closure로 캡슐화
+  const ctx = {
+    monthKey,
+    monthEnd,
+    monthDates,
+    monthWeeks,
+    biweeklyPeriods: listBiweeklyPeriods(monthKey),
+    quarterBounds: visibleQuarter,
+    isWorkday: (date) => getCalendarDecision(factoryId, date, database).isWorkday,
+    periodMaps,
+    logHelpers: {
+      listDates,
+      toMonthKey,
+      getQuarterBounds,
+      isSummerMonth,
+      parseMeta: (raw) => { try { return JSON.parse(raw || '{}'); } catch (e) { return {}; } },
+    },
+  };
 
   const items = [];
   templates.forEach(template => {
-    if (template.interval === 'daily') {
-      monthDates.forEach(date => {
-        const decision = getCalendarDecision(factoryId, date, database);
-        if (!decision.isWorkday) return;
-        const rec = dailyMap[`${template.log_id}::${date}`];
-        if (rec && isSatisfiedStatus(rec.status)) return;
-        items.push({
-          logId: template.log_id,
-          title: template.title,
-          interval: 'daily',
-          periodKey: date,
-          dueDate: date,
-          status: rec ? rec.status : '',
-          recordId: rec ? rec.record_id : '',
-          reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
-        });
-      });
-      return;
-    }
-
-    if (template.interval === 'weekly') {
-      monthWeeks.forEach(week => {
-        const hasWorkday = listDates(week.from, week.to).some(date => {
-          if (toMonthKey(date) !== monthKey) return false;
-          return getCalendarDecision(factoryId, date, database).isWorkday;
-        });
-        if (!hasWorkday) return;
-        const rec = weeklyMap[`${template.log_id}::${week.from}`];
-        if (rec && isSatisfiedStatus(rec.status)) return;
-        items.push({
-          logId: template.log_id,
-          title: template.title,
-          interval: 'weekly',
-          periodKey: week.from,
-          dueDate: week.to,
-          status: rec ? rec.status : '',
-          recordId: rec ? rec.record_id : '',
-          reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
-          rangeLabel: `${week.from} ~ ${week.to}`,
-        });
-      });
-      return;
-    }
-
-    if (template.interval === 'monthly') {
-      const hasWorkday = monthDates.some(date => getCalendarDecision(factoryId, date, database).isWorkday);
-      if (!hasWorkday) return;
-      const rec = monthlyMap[`${template.log_id}::${monthKey}`];
-      if (rec && isSatisfiedStatus(rec.status)) return;
-      items.push({
-        logId: template.log_id,
-        title: template.title,
-        interval: 'monthly',
-        periodKey: monthKey,
-        dueDate: monthEnd,
-        status: rec ? rec.status : '',
-        recordId: rec ? rec.record_id : '',
-        reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
-      });
-      return;
-    }
-
-    if (template.interval === 'quarterly') {
-      const quarter = getQuarterBounds(monthStart);
-      const quarterDates = listDates(quarter.from, quarter.to);
-      const monthQuarterDates = quarterDates.filter(date => toMonthKey(date) === monthKey);
-      const hasWorkday = monthQuarterDates.some(date => getCalendarDecision(factoryId, date, database).isWorkday);
-      if (!hasWorkday) return;
-      if (monthKey !== toMonthKey(quarter.to)) return;
-      const rec = quarterlyMap[`${template.log_id}::${quarter.from}`];
-      if (rec && isSatisfiedStatus(rec.status)) return;
-      items.push({
-        logId: template.log_id,
-        title: template.title,
-        interval: 'quarterly',
-        periodKey: quarter.from,
-        dueDate: quarter.to,
-        status: rec ? rec.status : '',
-        recordId: rec ? rec.record_id : '',
-        reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
-        rangeLabel: `${quarter.from} ~ ${quarter.to}`,
-      });
-      return;
-    }
-
-    if (template.interval === 'biweekly') {
-      listBiweeklyPeriods(monthKey).forEach(period => {
-        const periodDates = listDates(period.from, period.to).filter(date => toMonthKey(date) === monthKey);
-        const hasWorkday = periodDates.some(date => getCalendarDecision(factoryId, date, database).isWorkday);
-        if (!hasWorkday) return;
-        const rec = biweeklyMap[`${template.log_id}::${period.from}`];
-        if (rec && isSatisfiedStatus(rec.status)) return;
-        items.push({
-          logId: template.log_id,
-          title: template.title,
-          interval: 'biweekly',
-          periodKey: period.from,
-          dueDate: period.to,
-          status: rec ? rec.status : '',
-          recordId: rec ? rec.record_id : '',
-          reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
-          rangeLabel: `${period.from} ~ ${period.to}`,
-        });
-      });
-      return;
-    }
-
-    if (template.interval === 'seasonal') {
-      const metaInfo = JSON.parse(template.meta_info || '{}');
-      const summer = isSummerMonth(monthKey);
-      const effectiveInterval = summer
-        ? (metaInfo.summerInterval || 'weekly')
-        : (metaInfo.winterInterval || 'biweekly');
-
-      if (effectiveInterval === 'weekly') {
-        monthWeeks.forEach(week => {
-          const hasWorkday = listDates(week.from, week.to).some(date => {
-            if (toMonthKey(date) !== monthKey) return false;
-            return getCalendarDecision(factoryId, date, database).isWorkday;
-          });
-          if (!hasWorkday) return;
-          const rec = weeklyMap[`${template.log_id}::${week.from}`];
-          if (rec && isSatisfiedStatus(rec.status)) return;
-          items.push({
-            logId: template.log_id,
-            title: template.title,
-            interval: 'seasonal',
-            effectiveInterval: 'weekly',
-            periodKey: week.from,
-            dueDate: week.to,
-            status: rec ? rec.status : '',
-            recordId: rec ? rec.record_id : '',
-            reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
-            rangeLabel: `${week.from} ~ ${week.to}`,
-          });
-        });
-      } else {
-        listBiweeklyPeriods(monthKey).forEach(period => {
-          const periodDates = listDates(period.from, period.to).filter(date => toMonthKey(date) === monthKey);
-          const hasWorkday = periodDates.some(date => getCalendarDecision(factoryId, date, database).isWorkday);
-          if (!hasWorkday) return;
-          const rec = biweeklyMap[`${template.log_id}::${period.from}`];
-          if (rec && isSatisfiedStatus(rec.status)) return;
-          items.push({
-            logId: template.log_id,
-            title: template.title,
-            interval: 'seasonal',
-            effectiveInterval: 'biweekly',
-            periodKey: period.from,
-            dueDate: period.to,
-            status: rec ? rec.status : '',
-            recordId: rec ? rec.record_id : '',
-            reason: rec && isMissingStatus(rec.status) ? rec.status : '미작성',
-            rangeLabel: `${period.from} ~ ${period.to}`,
-          });
-        });
-      }
-      return;
-    }
+    items.push(...buildAlertItems(template, ctx));
   });
 
   items.sort((a, b) => {
