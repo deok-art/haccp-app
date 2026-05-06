@@ -8,16 +8,12 @@ const {
   syncNationalHolidaysForYear,
 } = require('../factory-calendar');
 
+const { getCallerRole } = require('../lib/auth/role');
+
 const router = express.Router();
 
-function getFactoryRole(user, factoryId) {
-  if (!user || !factoryId) return 0;
-  if (user.isMaster) return 3;
-  return parseInt((user.factoryRoles || {})[factoryId] || 0, 10);
-}
-
 function requireFactoryAccess(req, res, factoryId, minRole) {
-  const role = getFactoryRole(req.session.user, factoryId);
+  const role = getCallerRole(req.session.user, factoryId);
   if (role >= minRole) return true;
   res.json({ success: false, message: '권한이 없습니다.' });
   return false;
@@ -47,7 +43,7 @@ router.post('/getMissingDashboard', async (req, res) => {
     }
     if (!requireFactoryAccess(req, res, factoryId, 1)) return;
 
-    const dashboard = await getMissingDashboard(factoryId, monthKey, db);
+    const dashboard = await getMissingDashboard(factoryId, monthKey, db, req.session.user);
     res.json({ success: true, ...dashboard });
   } catch (err) {
     console.error('[getMissingDashboard]', err);

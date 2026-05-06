@@ -3,15 +3,11 @@ const { db, safeJson, now, today } = require('../db');
 const { logAudit } = require('../audit');
 const { canAccessTemplate, filterAccessibleTemplates, getTemplateForRecord } = require('../template-access');
 const { getWeekBounds, getQuarterBounds } = require('../lib/utils/date');
+const { getCallerRole } = require('../lib/auth/role');
 
 const router = express.Router();
 
 // ── 헬퍼 ────────────────────────────────────────────────
-function getCallerRole(user, factoryId) {
-  if (user.isMaster) return 3;
-  return parseInt((user.factoryRoles || {})[factoryId] || 0, 10);
-}
-
 function hasFactoryAccess(user, factoryId, minRole = 1) {
   return getCallerRole(user, factoryId) >= minRole;
 }
