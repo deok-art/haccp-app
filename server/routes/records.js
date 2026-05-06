@@ -4,6 +4,14 @@ const { logAudit } = require('../audit');
 const { canAccessTemplate, filterAccessibleTemplates, getTemplateForRecord } = require('../template-access');
 const { getWeekBounds, getQuarterBounds } = require('../lib/utils/date');
 const { getCallerRole } = require('../lib/auth/role');
+const { normalizeSubmittedData } = require('../lib/validation/helpers');
+const { validateCertificateData } = require('../lib/validation/certificate');
+const { validateRepeatSectionData } = require('../lib/validation/repeat-section');
+const {
+  validateTemplateItems,
+  validateLegacyData,
+  validateSi0302FilterRows,
+} = require('../lib/validation/items');
 
 const router = express.Router();
 
@@ -30,295 +38,36 @@ function requireTemplateWriteAccess(caller, template, res, recordWriterId = '') 
   return false;
 }
 
-function normalizeSubmittedData(dataJson) {
-  if (typeof dataJson === 'string') {
-    try { return JSON.parse(dataJson); }
-    catch (e) { return null; }
-  }
-  return dataJson && typeof dataJson === 'object' ? dataJson : null;
-}
-
-function isBlankRequiredValue(value) {
-  return value === undefined || value === null || String(value).trim() === '';
-}
-
-function isValidInspectionResult(result) {
-  return ['ok', 'ng', 'na'].includes(result);
-}
-
-function isOutOfCriteria(value, criteria) {
-  if (String(value).trim() === '-') return false;
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return false;
-
-  const min = criteria && criteria.min !== undefined ? criteria.min : null;
-  const max = criteria && criteria.max !== undefined ? criteria.max : null;
-
-  if (min !== null && min !== undefined && numericValue < Number(min)) return true;
-  if (max !== null && max !== undefined && numericValue > Number(max)) return true;
-  return false;
-}
-
 function getTemplateMetaInfo(template) {
   return safeJson(template && template.meta_info, {});
 }
 
-function dateDiffDays(fromDate, toDate) {
-  const [fromYear, fromMonth, fromDay] = String(fromDate || '').split('-').map(Number);
-  const [toYear, toMonth, toDay] = String(toDate || '').split('-').map(Number);
-  const from = new Date(Date.UTC(fromYear || 1970, (fromMonth || 1) - 1, fromDay || 1));
-  const to = new Date(Date.UTC(toYear || 1970, (toMonth || 1) - 1, toDay || 1));
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
-  return Math.round((to.getTime() - from.getTime()) / 86400000);
-}
-
-function getCertificateAreaCriteria(row, sample) {
-  const byArea = row && (row.criteriaByArea || row.criteria_by_area);
-  const area = sample && sample.area;
-  return byArea && area && byArea[area] ? byArea[area] : null;
-}
-
-function getCertificateExpectedJudgement(row, result, sample = null) {
-  const areaCriteria = getCertificateAreaCriteria(row, sample);
-  const effectiveRow = areaCriteria ? { ...row, ...areaCriteria } : row;
-  const value = String(result.value || '').trim();
-  if (effectiveRow.input_mode === 'pass_fail') {
-    if (value === '적합') return '적';
-    if (value === '부적합') return '부';
-    if (result.judgement === '적') return '적';
-    if (result.judgement === '부') return '부';
-    if (value === '적합') return '적';
-    if (value === '부적합') return '부';
-    if (result.judgement === '적') return '적';
-    if (result.judgement === '부') return '부';
-    return '';
-  }
-  if (effectiveRow.input_mode === 'positive_negative') {
-    if (value === '음성' || value === '불검출') return '적';
-    if (value === '양성' || value === '검출') return '부';
-    return '';
-  }
-  if (effectiveRow.input_mode === 'numeric_range') {
-    if (isBlankRequiredValue(value)) return '';
-    const num = Number.parseFloat(value);
-    if (!Number.isFinite(num)) return '';
-    const minOk = effectiveRow.min === undefined || effectiveRow.min === null || num >= Number(effectiveRow.min);
-    const maxOk = effectiveRow.max === undefined || effectiveRow.max === null || num <= Number(effectiveRow.max);
-    if (result.judgement === '적' || result.judgement === '부') return minOk && maxOk ? '적' : '부';
-    return minOk && maxOk ? '적' : '부';
-  }
-  return ['적', '부'].includes(result.judgement) ? result.judgement : '';
-}
-
-function validateCertificateData(data, certificateSpec) {
-  const certificate = data.certificate && typeof data.certificate === 'object' ? data.certificate : null;
-  if (!certificate) return '성적서 데이터를 입력해주세요.';
-
-  const fields = certificate.fields && typeof certificate.fields === 'object' ? certificate.fields : {};
-  const requiredFields = (certificateSpec.topFields || []).filter(field => field.required);
-  for (const field of requiredFields) {
-    if (isBlankRequiredValue(fields[field.key])) return `${field.label || field.key}을(를) 입력해주세요.`;
-  }
-  const todayStr = today();
-  if (fields.samplingDate && dateDiffDays(fields.samplingDate, todayStr) < 0) return '채취일자는 오늘 이후로 선택할 수 없습니다.';
-  if (fields.inspectionDate && dateDiffDays(fields.inspectionDate, todayStr) < 0) return '검사일자는 오늘 이후로 선택할 수 없습니다.';
-  if (certificate.judgementDate && dateDiffDays(certificate.judgementDate, todayStr) < 0) return '판정일자는 오늘 이후로 선택할 수 없습니다.';
-  if (fields.inspectionDate && fields.samplingDate && dateDiffDays(fields.samplingDate, fields.inspectionDate) < 0) {
-    return '검사일자는 채취일자보다 빠를 수 없습니다.';
-  }
-  const judgementOffsetDays = Number(certificateSpec.judgementOffsetDays || 2);
-  const judgementGap = dateDiffDays(fields.inspectionDate, certificate.judgementDate);
-  if (judgementGap === null || judgementGap < judgementOffsetDays) {
-    return `판정일자는 검사일자보다 최소 ${judgementOffsetDays}일 이상 늦어야 합니다.`;
-  }
-
-  const samples = Array.isArray(certificate.samples) ? certificate.samples : [];
-  if (!samples.length) return '채취대상을 1개 이상 입력해주세요.';
-
-  const rows = Array.isArray(certificateSpec.resultRows) ? certificateSpec.resultRows : [];
-  const usesCertificatePhotos = certificateSpec.photoMode === 'certificate';
-  if (usesCertificatePhotos) {
-    const photos = Array.isArray(certificate.photos) ? certificate.photos : [];
-    const maxPhotos = Number(certificateSpec.maxPhotos || 5);
-    if (!photos.length) return '성적서 사진을 1장 이상 첨부해주세요.';
-    if (photos.length > maxPhotos) return `성적서 사진은 ${maxPhotos}장까지 첨부할 수 있습니다.`;
-  }
-  for (let i = 0; i < samples.length; i++) {
-    const sample = samples[i] || {};
-    const sampleLabelName = certificateSpec.sampleLabel || '채취대상';
-    const sampleLabel = sample.target || `${sampleLabelName} ${i + 1}`;
-    if (certificateSpec.personLabel && isBlankRequiredValue(sample.personName)) return `[${certificateSpec.personLabel} ${i + 1}] ${certificateSpec.personLabel}을 입력해주세요.`;
-    if (isBlankRequiredValue(sample.target)) return `[${sampleLabelName} ${i + 1}] ${sampleLabelName}을(를) 입력해주세요.`;
-    if (!usesCertificatePhotos) {
-      const photos = Array.isArray(sample.photos) ? sample.photos : [];
-      if (!photos.length) return `[${sampleLabel}] 사진을 1장 이상 첨부해주세요.`;
-      if (photos.length > 5) return `[${sampleLabel}] 사진은 5장까지 첨부할 수 있습니다.`;
-    }
-    const results = sample.results && typeof sample.results === 'object' ? sample.results : {};
-    let hasSampleFailure = false;
-    for (const row of rows) {
-      const result = results[row.key] || {};
-      if (isBlankRequiredValue(result.value)) return `[${sampleLabel}] ${row.label} 검사결과를 입력해주세요.`;
-      const expectedJudgement = getCertificateExpectedJudgement(row, result, sample);
-      if (!expectedJudgement) return `[${sampleLabel}] ${row.label} 검사결과가 올바르지 않습니다.`;
-      if (result.judgement !== expectedJudgement) return `[${sampleLabel}] ${row.label} 판정결과가 검사결과와 일치하지 않습니다.`;
-      if (expectedJudgement === '부') hasSampleFailure = true;
-      if (certificateSpec.defectMode !== 'sample' && row.require_defect_text_on_fail && expectedJudgement === '부' && isBlankRequiredValue(result.defectText)) {
-        return `[${sampleLabel}] ${row.label} 부적합사항을 입력해주세요.`;
-      }
-    }
-    if (certificateSpec.defectMode === 'sample' && hasSampleFailure) {
-      if (isBlankRequiredValue(sample.defectText)) return `[${sampleLabel}] 부적합사항을 입력해주세요.`;
-      if (isBlankRequiredValue(sample.actionText)) return `[${sampleLabel}] 개선조치를 입력해주세요.`;
-    }
-  }
-
-  const expectedOverall = samples.every(sample => rows.every(row => {
-    const result = ((sample.results && sample.results[row.key]) || {});
-    return getCertificateExpectedJudgement(row, result, sample) === '적';
-  })) ? '적합' : '부적합';
-  if (certificate.overallJudgement !== expectedOverall) {
-    return '종합판정이 검사결과와 일치하지 않습니다.';
-  }
-  if (expectedOverall === '부적합' && certificateSpec.defectMode !== 'sample') {
-    if (isBlankRequiredValue(certificate.defectText)) return '종합판정 부적합 사유를 입력해주세요.';
-    if (isBlankRequiredValue(certificate.actionText)) return '종합판정 개선조치를 입력해주세요.';
-  }
-  return '';
-}
-
-function validateRepeatSectionData(data) {
-  const vehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
-  if (!vehicles.length) return '차량 정보를 1대 이상 입력해주세요.';
-  for (let vi = 0; vi < vehicles.length; vi++) {
-    const ve = vehicles[vi];
-    const carNum = (ve.values && ve.values['item_01'] && String(ve.values['item_01']).trim()) || '';
-    const label = `차량 ${vi + 1}${carNum ? `(${carNum})` : ''}`;
-    if (!carNum) return `[${label}] 차량번호를 입력해주세요.`;
-    const checks = ve.checkData || {};
-    const defects = ve.defectTexts || {};
-    for (const key of Object.keys(checks)) {
-      if (checks[key] === 'ng' && isBlankRequiredValue(defects[key])) {
-        return `[${label}] 부적합 내용을 입력해주세요.`;
-      }
-    }
-  }
-  return '';
-}
-
+// 양식 제출 데이터 검증 — 디스패처. 실제 검증 로직은 lib/validation/* 에 분리.
 function validateTemplateRequiredItems(logId, dataJson, factoryId) {
   const data = normalizeSubmittedData(dataJson);
   if (!data) return '제출 데이터 형식이 올바르지 않습니다.';
 
   const template = getTemplate(logId, factoryId);
   const metaInfo = getTemplateMetaInfo(template);
+
   if (metaInfo.certificateSpec) {
-    return validateCertificateData(data, metaInfo.certificateSpec);
+    return validateCertificateData(data, metaInfo.certificateSpec, today());
   }
   if (metaInfo.repeatSection) {
     return validateRepeatSectionData(data);
   }
 
-  const templateItems = safeJson(template && template.items, []);
-  const items = data.items && typeof data.items === 'object' ? data.items : {};
-
   if (logId === 'si0302') {
-    const filterRows = Array.isArray(data.filterRows) ? data.filterRows : [];
-    if (!filterRows.length) return '필터 설치일자와 교체(예정)일자를 입력해주세요.';
-    for (const row of filterRows) {
-      if (isBlankRequiredValue(row.installDate) || isBlankRequiredValue(row.replacementDate)) {
-        return '필터 설치일자와 교체(예정)일자를 입력해주세요.';
-      }
-    }
+    const err = validateSi0302FilterRows(data);
+    if (err) return err;
   }
 
+  const templateItems = safeJson(template && template.items, []);
   if (templateItems.length) {
-    let includeCurrentGroup = true;
-    for (const item of templateItems) {
-      if (item.type === 'group_header') {
-        const processTypes = item.process_types || item.processTypes;
-        includeCurrentGroup = !data.processType || !Array.isArray(processTypes) || !processTypes.length || processTypes.includes(data.processType);
-        continue;
-      }
-      if (!includeCurrentGroup) continue;
-
-      const entry = items[item.key] || {};
-      const label = item.label || item.key;
-
-      if (item.type === 'worker_hygiene_table' || Array.isArray(item.check_columns)) {
-        const rows = data.workerRows && Array.isArray(data.workerRows[item.key])
-          ? data.workerRows[item.key]
-          : [];
-        const columns = Array.isArray(item.check_columns) ? item.check_columns : [];
-
-        for (const row of rows) {
-          const workerName = row.workerName || '작업자';
-          const checks = row.checks || {};
-          const defectNotes = row.defectNotes || {};
-
-          for (const col of columns) {
-            const result = checks[col.key];
-            if (!isValidInspectionResult(result)) {
-              return `[${label}] ${workerName} - ${col.label || col.key} 점검 결과를 입력해주세요.`;
-            }
-            if (result === 'ng' && col.required_defect_action && isBlankRequiredValue(defectNotes[col.key])) {
-              return `[${label}] ${workerName} - ${col.label || col.key} 부적합 내용을 입력해주세요.`;
-            }
-          }
-        }
-      } else if (item.type === 'numeric' || item.type === 'temp') {
-        if (isBlankRequiredValue(entry.tempValue)) {
-          return `[${label}] 측정값을 입력해주세요.`;
-        }
-        if (String(entry.tempValue).trim() === '-') {
-          if (entry.result !== 'na') {
-            return `[${label}] - 입력값은 해당없음으로 작성해주세요.`;
-          }
-        } else if (!Number.isFinite(Number(entry.tempValue))) {
-          return `[${label}] 측정값은 숫자로 입력해주세요.`;
-        }
-        if (!isValidInspectionResult(entry.result)) {
-          return `[${label}] 점검 결과를 입력해주세요.`;
-        }
-        if (isOutOfCriteria(entry.tempValue, item.criteria || item)) {
-          if (entry.result !== 'ng') {
-            return `[${label}] 기준을 벗어난 값은 부적합으로 작성해주세요.`;
-          }
-        }
-      } else if (item.type === 'text' || item.type === 'date') {
-        if (item.required && isBlankRequiredValue(entry.value)) {
-          return `[${label}] 값을 입력해주세요.`;
-        }
-      } else if (!isValidInspectionResult(entry.result)) {
-        return `[${label}] 점검 결과를 입력해주세요.`;
-      }
-
-      if (entry.result === 'ng') {
-        if (isBlankRequiredValue(entry.defectText)) {
-          return `[${label}] 부적합 내용을 입력해주세요.`;
-        }
-        if (isBlankRequiredValue(entry.actionText)) {
-          return `[${label}] 개선조치 내용을 입력해주세요.`;
-        }
-      }
-    }
-
-    return '';
+    return validateTemplateItems(templateItems, data);
   }
 
-  if (Object.prototype.hasOwnProperty.call(data, 'temperature')) {
-    if (isBlankRequiredValue(data.temperature)) return '온도를 입력해주세요.';
-    if (String(data.temperature).trim() !== '-' && !Number.isFinite(Number(data.temperature))) return '온도는 숫자로 입력해주세요.';
-  }
-
-  for (const entry of Object.values(items)) {
-    if (entry && entry.result === 'ng') {
-      if (isBlankRequiredValue(entry.defectText)) return '부적합 내용을 입력해주세요.';
-      if (isBlankRequiredValue(entry.actionText)) return '개선조치 내용을 입력해주세요.';
-    }
-  }
-
-  return '';
+  return validateLegacyData(data);
 }
 
 function getCertificateActionDateError(rec, actionDate) {
